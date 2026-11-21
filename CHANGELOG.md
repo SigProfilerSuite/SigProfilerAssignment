@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-11-21
+
+### Changed
+
+- Updated category signature lists for exclude_signature_subgroups in cosmic_fit
+
+- test(assignment): add unit tests for decompose_subroutines and single_sample helpers
+
+- build: cap reportlab at <=4.5.1 to keep Python 3.9 installable
+
 ## [1.1.5] - 2026-07-29
 
 ### Added
