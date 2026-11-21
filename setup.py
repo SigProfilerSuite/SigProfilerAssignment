@@ -6,7 +6,7 @@ import os
 if os.path.exists("dist"):
     shutil.rmtree("dist")
 
-VERSION = "1.1.5"
+VERSION = "1.1.6"
 
 
 def write_version_py(filename="SigProfilerAssignment/version.py"):
@@ -37,7 +37,7 @@ requirements = [
     "pandas>=2.0.0",
     "SigProfilerMatrixGenerator>=1.3.0",
     "sigProfilerPlotting>=1.4.0",
-    "reportlab>=3.5.42",
+    "reportlab>=3.5.42,<=4.5.1",  # reportlab 5.1.0+ requires Python 3.10+
     "pypdf>=6.0.0",
     "alive_progress>=2.4.1",
     "pdf2image>=1.16.0",  # replacing PyMuPDF
