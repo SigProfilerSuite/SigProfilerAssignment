@@ -282,6 +282,61 @@ class TestCollapseToSBS96:
         assert mapping["Signature 96-SBS96B"] == "Signature SBS13 (100.00%)"
 
 
+# ─── collapse_to_SBS96 on contexts that cannot be collapsed ─────────────────────
+
+def _run_capture(fn, output, **kwargs):
+    """Like _run, but also returns what the run printed."""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        fn(output=str(output), make_plots=False, export_probabilities=True, cpu=1, **kwargs)
+    return output, buf.getvalue()
+
+
+def _dummy_dbs_inputs(tmp_path):
+    ref = pd.read_csv(REF_SBS96.replace("_SBS_", "_DBS_"), sep="\t", index_col=0)
+    mixtures = {"S1": {"DBS2": 300, "DBS4": 200}, "S2": {"DBS2": 150, "DBS11": 250}}
+    samples = pd.DataFrame(
+        {s: np.round(sum(n * ref[k] for k, n in mix.items())).astype(int) for s, mix in mixtures.items()},
+        index=ref.index)
+    samples.index.name = "MutationType"
+    denovo = pd.DataFrame({"DBS78A": 0.5 * ref["DBS2"] + 0.5 * ref["DBS4"]}, index=ref.index)
+    denovo.index.name = "MutationType"
+    samples_path, denovo_path = tmp_path / "dbs_samples.txt", tmp_path / "dbs_denovo.txt"
+    samples.to_csv(samples_path, sep="\t")
+    denovo.to_csv(denovo_path, sep="\t")
+    return str(samples_path), str(denovo_path), mixtures
+
+
+class TestCollapseNotApplicable:
+    MESSAGE = ("collapse_to_SBS96=True only applies to SBS inputs with extended contexts "
+               "(e.g. SBS288, SBS1536, SBS4608); ")
+
+    def test_dbs78_with_default_collapse_runs_and_warns(self, tmp_path):
+        samples, _, mixtures = _dummy_dbs_inputs(tmp_path)
+        out, printed = _run_capture(Analyze.cosmic_fit, tmp_path / "out", samples=samples)
+        warning = self.MESSAGE + "the input is DBS78, so it is analysed without collapsing."
+        assert warning in printed
+        assert warning in open(os.path.join(out, "JOB_METADATA_SPA.txt")).read()
+        _assert_close(_activities(out, "Assignment_Solution", "Assignment_Solution"), mixtures)
+
+    def test_decompose_dbs78_with_default_collapse_warns(self, tmp_path):
+        samples, denovo, _ = _dummy_dbs_inputs(tmp_path)
+        _, printed = _run_capture(Analyze.decompose_fit, tmp_path / "out", samples=samples, signatures=denovo)
+        assert self.MESSAGE + "the input is DBS78, so it is analysed without collapsing." in printed
+
+    def test_same_custom_context_with_collapse_runs_and_warns(self, tmp_path):
+        # used to stop with "Signatures Database and Samples are of same context type ..."
+        samples, db, mixtures = _custom_context_inputs(tmp_path, ["CTX%02d" % i for i in range(10)])
+        out, printed = _run_capture(Analyze.cosmic_fit, tmp_path / "out", samples=samples, signature_database=db)
+        assert (self.MESSAGE + "the input has 10 rows (mutation contexts), so it is analysed "
+                "without collapsing.") in printed
+        _assert_close(_activities(out, "Assignment_Solution", "Assignment_Solution"), mixtures)
+
+    def test_sbs96_input_does_not_warn(self, inputs, tmp_path):
+        _, printed = _run_capture(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"])
+        assert "collapse_to_SBS96=True only applies" not in printed
+
+
 # ─── input errors ──────────────────────────────────────────────
 
 class TestInputErrors:
@@ -351,12 +406,6 @@ class TestInputErrors:
         with pytest.raises(ValueError, match="The matrix passed in 'signatures' has 95 rows but the samples have 96"):
             _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=str(path))
 
-    def test_same_custom_context_with_collapse_raises_value_error(self, tmp_path):
-        # current behaviour for non-96 samples and database of the same context with the default
-        # collapse_to_SBS96=True; to be revisited with the planned collapse change
-        samples, db, _ = _custom_context_inputs(tmp_path, ["CTX%02d" % i for i in range(10)])
-        with pytest.raises(ValueError, match="collapse_to_SBS96"):
-            _run(Analyze.cosmic_fit, tmp_path / "out", samples=samples, signature_database=db)
 
 
 # ─── denovo_fit ──────────────────────────────────────────────

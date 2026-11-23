@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from SigProfilerAssignment.decompose_subroutines import (
+    collapse_not_applicable_message,
     collapse_to_sbs96,
     cor_sim,
     cos_sim,
@@ -200,6 +201,20 @@ class TestCollapseToSbs96:
         matrix = pd.DataFrame({"S1": np.ones(len(labels))}, index=labels)
         with pytest.raises(ValueError, match="95"):
             collapse_to_sbs96(matrix)
+
+
+class TestCollapseNotApplicableMessage:
+    PREFIX = ("collapse_to_SBS96=True only applies to SBS inputs with extended contexts "
+              "(e.g. SBS288, SBS1536, SBS4608); ")
+
+    @pytest.mark.parametrize("rows,name", [(78, "DBS78"), (83, "ID83"), (48, "CNV48"), (32, "SV32")])
+    def test_known_context_is_named(self, rows, name):
+        assert collapse_not_applicable_message(rows) == (
+            self.PREFIX + "the input is %s, so it is analysed without collapsing." % name)
+
+    def test_unknown_context_gives_row_count(self):
+        assert collapse_not_applicable_message(10) == (
+            self.PREFIX + "the input has 10 rows (mutation contexts), so it is analysed without collapsing.")
 
 
 # ─── getProcessAvg ──────────────────────────────────────────────

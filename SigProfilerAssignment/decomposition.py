@@ -894,6 +894,12 @@ def spa_analyze(
             # originalProcessAvg keeps the de novo names; collapse it from its own labels
             if sub.is_extended_sbs(originalProcessAvg.index):
                 originalProcessAvg = sub.collapse_to_sbs96(originalProcessAvg)
+        elif collapse_to_SBS96 == True and len(index) != 96:
+            message = sub.collapse_not_applicable_message(len(index))
+            print(message)
+            if make_metadata:
+                with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
+                    sysdata.write("\n " + message)
 
         print("\n Decomposing De Novo Signatures  .....")
         current_time_start = datetime.datetime.now()
@@ -1011,6 +1017,12 @@ def spa_analyze(
         if collapse_to_SBS96 == True and sub.is_extended_sbs(genomes.index):
             genomes = sub.collapse_to_sbs96(pd.DataFrame(genomes, index=index))
             index = genomes.index
+        elif collapse_to_SBS96 == True and genomes.shape[0] != 96:
+            message = sub.collapse_not_applicable_message(genomes.shape[0])
+            print(message)
+            if make_metadata:
+                with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
+                    sysdata.write("\n " + message)
 
         if signature_database == None:
             processAvg = sub.getProcessAvg(
@@ -1092,12 +1104,6 @@ def spa_analyze(
         if make_metadata:
             with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
                 sysdata.write("\n Assigning COSMIC sigs or Signature Database ...... ")
-        if processAvg.shape[0] != 96:
-            if genomes.shape[0] == processAvg.shape[0] and collapse_to_SBS96 == True:
-                raise ValueError(
-                    'Signatures Database and Samples are of same context type and is not equal to 96. please rerun by setting the flag "collapse_to_SBS96 = False "'
-                )
-
         sub.make_final_solution(
             processAvg,
             genomes,

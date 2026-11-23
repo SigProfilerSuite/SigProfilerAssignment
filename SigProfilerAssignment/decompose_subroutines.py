@@ -74,6 +74,22 @@ def collapse_to_sbs96(matrix):
     return collapsed
 
 
+_NAMED_CONTEXTS = {78: "DBS78", 83: "ID83", 48: "CNV48", 32: "SV32"}
+
+
+def collapse_not_applicable_message(n_contexts):
+    """Warning for collapse_to_SBS96=True on an input that is not an extended SBS context."""
+    if n_contexts in _NAMED_CONTEXTS:
+        what = "is {}".format(_NAMED_CONTEXTS[n_contexts])
+    else:
+        what = "has {} rows (mutation contexts)".format(n_contexts)
+    return (
+        "collapse_to_SBS96=True only applies to SBS inputs with extended contexts "
+        "(e.g. SBS288, SBS1536, SBS4608); the input {}, so it is analysed without "
+        "collapsing.".format(what)
+    )
+
+
 def getProcessAvg(
     samples,
     genome_build="GRCh37",
