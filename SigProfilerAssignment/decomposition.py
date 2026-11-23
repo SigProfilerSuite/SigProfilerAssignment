@@ -365,6 +365,11 @@ def spa_analyze(
     else:
         raise ValueError("Invalid input_type specified: '{}'".format(input_type))
 
+    # validate the input mutation counts; warnings are printed now and recorded in the metadata
+    input_warnings = sub.check_samples_matrix(genomes)
+    for message in input_warnings:
+        print(message)
+
     mutation_type = str(genomes.shape[0])
     m = mutation_type
 
@@ -559,6 +564,10 @@ def spa_analyze(
         sysdata.write("Numpy version: " + np.__version__ + "\n")
         record_parameters(sysdata, execution_parameters, start_time)
         sysdata.close()
+        if input_warnings:
+            with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
+                for message in input_warnings:
+                    sysdata.write("\n " + message)
     # Add sequence parameter to control the tmbplot y-axis scale
     if exome == True:
         sequence = "exome"
@@ -916,6 +925,17 @@ def spa_analyze(
         if make_metadata:
             with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
                 sysdata.write("\n Decomposing De Novo Signatures  .....")
+        if isinstance(signature_database, (str, os.PathLike)) and os.path.isfile(signature_database):
+            try:
+                database_to_check = pd.read_csv(signature_database, sep="\t", index_col=0)
+            except Exception:
+                database_to_check = None  # format errors are reported by signature_decomposition
+            if database_to_check is not None:
+                for message in sub.check_signature_database(database_to_check):
+                    print(message)
+                    if make_metadata:
+                        with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
+                            sysdata.write("\n " + message)
         final_signatures = sub.signature_decomposition(
             processAvg,
             mutation_type,
@@ -1053,6 +1073,11 @@ def spa_analyze(
                 raise ValueError(
                     "Something is wrong with the format of signature database, Pass a text file of signatures in the format of COSMIC sig database"
                 ) from e
+            for message in sub.check_signature_database(processAvg):
+                print(message)
+                if make_metadata:
+                    with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
+                        sysdata.write("\n " + message)
             n_database_contexts = processAvg.shape[0]
             if collapse_to_SBS96 == True and sub.is_extended_sbs(processAvg.index):
                 processAvg = sub.collapse_to_sbs96(processAvg)

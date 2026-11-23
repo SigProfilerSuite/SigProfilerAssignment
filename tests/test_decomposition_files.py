@@ -418,6 +418,93 @@ class TestSignatureRowAlignment:
             _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=str(path))
 
 
+# ─── input validation (audit SPA-2026-11 #3) ─────────────────────────────────
+
+class TestInputValidation:
+    def _samples_with(self, inputs, tmp_path, value, sample="S1", row=0, name="samples_bad.txt"):
+        samples = inputs["samples"].astype(float)
+        samples.loc[samples.index[row], sample] = value
+        path = tmp_path / name
+        samples.to_csv(path, sep="\t")
+        return str(path)
+
+    def test_negative_counts_raise(self, inputs, tmp_path):
+        path = self._samples_with(inputs, tmp_path, -50)
+        with pytest.raises(ValueError, match=r"^Input samples contain negative values in sample\(s\) S1 "
+                                             r"\(e\.g\. S1 / A\[C>A\]A = -50\)\. Mutation counts must be "
+                                             r"non-negative integers\.$"):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=path)
+
+    def test_nan_raises(self, inputs, tmp_path):
+        path = self._samples_with(inputs, tmp_path, np.nan, sample="S2")
+        with pytest.raises(ValueError, match=r"^Input samples contain missing values \(NaN\) in sample\(s\) S2\. "
+                                             r"Mutation counts must be finite, non-negative numbers\.$"):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=path)
+
+    def test_inf_raises(self, inputs, tmp_path):
+        path = self._samples_with(inputs, tmp_path, np.inf, sample="S3")
+        with pytest.raises(ValueError, match=r"^Input samples contain infinite values in sample\(s\) S3\. "
+                                             r"Mutation counts must be finite, non-negative numbers\.$"):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=path)
+
+    def test_proportions_raise(self, inputs, tmp_path):
+        path = tmp_path / "proportions.txt"
+        (inputs["samples"] / inputs["samples"].sum()).to_csv(path, sep="\t")
+        with pytest.raises(ValueError, match=r"^All columns of the input samples sum to ~1, so the input looks like "
+                                             r"signatures or proportions rather than mutation counts\. .*pass them "
+                                             r"as 'signatures' to decompose_fit; otherwise provide raw mutation "
+                                             r"counts\.$"):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=str(path))
+
+    def test_non_integer_counts_warn_and_run(self, inputs, tmp_path):
+        path = tmp_path / "fractional.txt"
+        (inputs["samples"] + 0.5).to_csv(path, sep="\t")
+        out, printed = _run_capture(Analyze.cosmic_fit, tmp_path / "out", samples=str(path))
+        warning = ("Input samples contain non-integer values in sample(s) S1, S2, S3. Activities are reported "
+                   "as integer mutation counts, so results will be rounded.")
+        assert warning in printed
+        assert warning in open(os.path.join(out, "JOB_METADATA_SPA.txt")).read()
+
+    def _db_with(self, tmp_path, value, sig="SBS2"):
+        db = _cosmic()[["SBS1", "SBS5", "SBS13", "SBS2", "SBS40a"]].copy()
+        db.loc[db.index[0], sig] = value
+        path = tmp_path / "db_bad.txt"
+        db.to_csv(path, sep="\t")
+        return str(path)
+
+    def test_signature_database_negative_raises(self, inputs, tmp_path):
+        with pytest.raises(ValueError, match=r"^signature_database contains negative values in signature\(s\) SBS2\. "
+                                             r"Signature probabilities must be non-negative\.$"):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"],
+                 signature_database=self._db_with(tmp_path, -0.01))
+
+    def test_signature_database_nan_raises(self, inputs, tmp_path):
+        with pytest.raises(ValueError, match=r"^signature_database contains missing values \(NaN\) in "
+                                             r"signature\(s\) SBS2\."):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"],
+                 signature_database=self._db_with(tmp_path, np.nan))
+
+    def test_signature_database_inf_raises(self, inputs, tmp_path):
+        with pytest.raises(ValueError, match=r"^signature_database contains infinite values in signature\(s\) SBS2\."):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"],
+                 signature_database=self._db_with(tmp_path, np.inf))
+
+    @pytest.mark.parametrize("fn", ["cosmic_fit", "decompose_fit"])
+    def test_signature_database_not_summing_to_one_warns_and_runs(self, fn, inputs, tmp_path):
+        db = _cosmic()[["SBS1", "SBS5", "SBS13", "SBS2", "SBS40a"]].copy()
+        db["SBS2"] = db["SBS2"] * 0.85
+        db["SBS13"] = db["SBS13"] * 1.2
+        path = tmp_path / "db_unnormalised.txt"
+        db.to_csv(path, sep="\t")
+        kwargs = {"signatures": inputs["denovo_path"]} if fn == "decompose_fit" else {}
+        out, printed = _run_capture(getattr(Analyze, fn), tmp_path / "out", samples=inputs["samples_path"],
+                                    signature_database=str(path), **kwargs)
+        warning = ("signature_database signature(s) SBS13, SBS2 do not sum to 1 (sums: 1.20, 0.85). Signatures "
+                   "are expected to be probability distributions over mutation contexts.")
+        assert warning in printed
+        assert warning in open(os.path.join(out, "JOB_METADATA_SPA.txt")).read()
+
+
 # ─── parameters reaching the decomposition stage of decompose_fit ───────────────
 
 @pytest.fixture

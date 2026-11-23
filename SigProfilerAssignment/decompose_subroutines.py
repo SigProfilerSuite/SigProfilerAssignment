@@ -120,6 +120,97 @@ def align_signatures_to_contexts(signatures, contexts, subject, short_name):
     return aligned
 
 
+def _numeric_values(matrix):
+    """Numeric columns of a samples or signatures matrix (labels and text columns ignored)."""
+    frame = pd.DataFrame(matrix)
+    return frame.select_dtypes(include=[np.number])
+
+
+def check_samples_matrix(genomes):
+    """Validate input mutation counts. Raises ValueError for NaN, infinite or negative values and
+    for matrices that look like signatures/proportions; returns warning messages (non-integers)."""
+    values = _numeric_values(genomes)
+    data = values.to_numpy(dtype=float)
+    names = values.columns.astype(str)
+    if data.size == 0:
+        return []
+    bad = np.isnan(data).any(axis=0)
+    if bad.any():
+        raise ValueError(
+            "Input samples contain missing values (NaN) in sample(s) {}. Mutation counts must be "
+            "finite, non-negative numbers.".format(_first_items(names[bad]))
+        )
+    bad = np.isinf(data).any(axis=0)
+    if bad.any():
+        raise ValueError(
+            "Input samples contain infinite values in sample(s) {}. Mutation counts must be "
+            "finite, non-negative numbers.".format(_first_items(names[bad]))
+        )
+    negative = data < 0
+    if negative.any():
+        row, col = np.argwhere(negative)[0]
+        raise ValueError(
+            "Input samples contain negative values in sample(s) {} (e.g. {} / {} = {:g}). Mutation "
+            "counts must be non-negative integers.".format(
+                _first_items(names[negative.any(axis=0)]), names[col], values.index[row], data[row, col]
+            )
+        )
+    if np.all(np.abs(data.sum(axis=0) - 1) <= 0.01):
+        raise ValueError(
+            "All columns of the input samples sum to ~1, so the input looks like signatures or "
+            "proportions rather than mutation counts. Activities are reported as integer mutation "
+            "counts, so each column would be treated as a single mutation. To decompose signatures "
+            "into a reference set (COSMIC or a custom signature_database), pass them as "
+            "'signatures' to decompose_fit; otherwise provide raw mutation counts."
+        )
+    warnings_found = []
+    non_integer = (np.abs(data - np.round(data)) > 1e-9).any(axis=0)
+    if non_integer.any():
+        warnings_found.append(
+            "Input samples contain non-integer values in sample(s) {}. Activities are reported as "
+            "integer mutation counts, so results will be rounded.".format(_first_items(names[non_integer]))
+        )
+    return warnings_found
+
+
+def check_signature_database(signatures):
+    """Validate a user signature_database. Raises ValueError for NaN, infinite or negative values;
+    returns warning messages for signatures that do not sum to ~1."""
+    values = _numeric_values(signatures)
+    data = values.to_numpy(dtype=float)
+    names = values.columns.astype(str)
+    if data.size == 0:
+        return []
+    bad = np.isnan(data).any(axis=0)
+    if bad.any():
+        raise ValueError(
+            "signature_database contains missing values (NaN) in signature(s) {}. Signature "
+            "probabilities must be finite, non-negative numbers.".format(_first_items(names[bad]))
+        )
+    bad = np.isinf(data).any(axis=0)
+    if bad.any():
+        raise ValueError(
+            "signature_database contains infinite values in signature(s) {}. Signature "
+            "probabilities must be finite, non-negative numbers.".format(_first_items(names[bad]))
+        )
+    bad = (data < 0).any(axis=0)
+    if bad.any():
+        raise ValueError(
+            "signature_database contains negative values in signature(s) {}. Signature "
+            "probabilities must be non-negative.".format(_first_items(names[bad]))
+        )
+    sums = data.sum(axis=0)
+    off = np.abs(sums - 1) > 0.01
+    if off.any():
+        return [
+            "signature_database signature(s) {} do not sum to 1 (sums: {}). Signatures are expected "
+            "to be probability distributions over mutation contexts.".format(
+                _first_items(names[off]), _first_items(["{:.2f}".format(x) for x in sums[off]])
+            )
+        ]
+    return []
+
+
 _NAMED_CONTEXTS = {78: "DBS78", 83: "ID83", 48: "CNV48", 32: "SV32"}
 
 

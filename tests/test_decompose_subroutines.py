@@ -8,6 +8,8 @@ import pytest
 
 from SigProfilerAssignment.decompose_subroutines import (
     align_signatures_to_contexts,
+    check_samples_matrix,
+    check_signature_database,
     collapse_not_applicable_message,
     collapse_to_sbs96,
     cor_sim,
@@ -253,6 +255,60 @@ class TestAlignSignaturesToContexts:
         contexts = ["c%d" % i for i in range(8)]
         with pytest.raises(ValueError, match=r"missing in signature_database: c0, c1, c2, c3, c4, \.\.\.; not in the samples: z\)"):
             align_signatures_to_contexts(self._sigs(["z"]), contexts, "signature_database", "signature_database")
+
+
+class TestCheckSamplesMatrix:
+    def _m(self, **cols):
+        return pd.DataFrame(cols, index=["c1", "c2", "c3"])
+
+    def test_valid_counts_give_no_warning(self):
+        assert check_samples_matrix(self._m(S1=[1, 2, 3], S2=[0, 5, 7])) == []
+
+    def test_negative_value_names_the_first_cell(self):
+        with pytest.raises(ValueError, match=r"sample\(s\) S2 \(e\.g\. S2 / c2 = -3\)"):
+            check_samples_matrix(self._m(S1=[1, 2, 3], S2=[0, -3, 7]))
+
+    def test_nan_is_reported_before_other_problems(self):
+        with pytest.raises(ValueError, match=r"missing values \(NaN\) in sample\(s\) S1"):
+            check_samples_matrix(self._m(S1=[np.nan, -1, 3], S2=[0, 5, 7]))
+
+    def test_proportions_raise(self):
+        with pytest.raises(ValueError, match=r"^All columns of the input samples sum to ~1"):
+            check_samples_matrix(self._m(S1=[0.2, 0.3, 0.5], S2=[0.1, 0.1, 0.8]))
+
+    def test_one_column_summing_to_one_is_not_proportions(self):
+        assert check_samples_matrix(self._m(S1=[0, 1, 0], S2=[3, 5, 7])) == []
+
+    def test_non_integer_counts_warn(self):
+        (warning,) = check_samples_matrix(self._m(S1=[1.5, 2, 3], S2=[0, 5, 7]))
+        assert warning.startswith("Input samples contain non-integer values in sample(s) S1.")
+
+    def test_text_columns_are_ignored(self):
+        frame = pd.DataFrame({"MutationType": ["c1", "c2", "c3"], "S1": [1, 2, 3]})
+        assert check_samples_matrix(frame) == []
+
+
+class TestCheckSignatureDatabase:
+    def _db(self, a, b):
+        return pd.DataFrame({"SIG_A": a, "SIG_B": b}, index=["c1", "c2", "c3"])
+
+    def test_normalised_database_gives_no_warning(self):
+        assert check_signature_database(self._db([0.2, 0.3, 0.5], [1.0, 0.0, 0.0])) == []
+
+    def test_negative_value_raises(self):
+        with pytest.raises(ValueError, match=r"negative values in signature\(s\) SIG_B\. "
+                                             r"Signature probabilities must be non-negative\.$"):
+            check_signature_database(self._db([0.2, 0.3, 0.5], [1.1, -0.1, 0.0]))
+
+    @pytest.mark.parametrize("bad,text", [(np.nan, r"missing values \(NaN\)"), (np.inf, "infinite values")])
+    def test_nan_and_inf_raise(self, bad, text):
+        with pytest.raises(ValueError, match=text + r" in signature\(s\) SIG_A\. Signature probabilities must "
+                                                    r"be finite, non-negative numbers\.$"):
+            check_signature_database(self._db([bad, 0.3, 0.5], [1.0, 0.0, 0.0]))
+
+    def test_columns_not_summing_to_one_warn(self):
+        (warning,) = check_signature_database(self._db([0.2, 0.3, 0.35], [1.0, 0.0, 0.0]))
+        assert warning.startswith("signature_database signature(s) SIG_A do not sum to 1 (sums: 0.85).")
 
 
 class TestCollapseNotApplicableMessage:
