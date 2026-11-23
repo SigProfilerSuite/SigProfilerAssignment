@@ -158,6 +158,53 @@ class TestCosmicFit:
         _assert_close(acts, MIXTURES)
 
 
+# ─── custom contexts with a user signature database ─────────────────────────────
+
+def _custom_context_inputs(tmp_path, contexts, n_sigs=3, scale=1):
+    """Dummy signatures (local seeded generator) over `contexts` and noise-free samples.
+    `scale` multiplies the burdens so that wide contexts (e.g. 4608 rows) still have
+    several mutations per context and integer rounding does not distort the profile."""
+    rng = np.random.default_rng(0)
+    names = ["SIG_%s" % chr(65 + k) for k in range(n_sigs)]
+    sigs = pd.DataFrame(rng.dirichlet(np.full(len(contexts), 0.5), size=n_sigs).T,
+                        index=contexts, columns=names)
+    sigs.index.name = "MutationType"
+    mixtures = {s: {k: n * scale for k, n in mix.items()} for s, mix in {
+        "S1": {"SIG_A": 1500, "SIG_B": 700},
+        "S2": {"SIG_B": 400, "SIG_C": 2200},
+        "S3": {"SIG_A": 900, "SIG_B": 900, "SIG_C": 900}}.items()}
+    samples = pd.DataFrame(
+        {s: np.round(sum(n * sigs[k] for k, n in mix.items())).astype(int) for s, mix in mixtures.items()},
+        index=contexts)
+    samples.index.name = "MutationType"
+    db_path, samples_path = tmp_path / "db.txt", tmp_path / "samples.txt"
+    sigs.to_csv(db_path, sep="\t")
+    samples.to_csv(samples_path, sep="\t")
+    return str(samples_path), str(db_path), mixtures
+
+
+class TestCustomContext:
+    def test_sbs4608_with_custom_database_without_collapse(self, tmp_path):
+        from sigProfilerPlotting import sigProfilerPlotting as sigPlot
+        contexts = sigPlot.get_context_reference("4608")
+        samples, db, mixtures = _custom_context_inputs(tmp_path, contexts, scale=100)
+        out = _run(Analyze.cosmic_fit, tmp_path / "out", samples=samples,
+                   signature_database=db, collapse_to_SBS96=False)
+        acts = _activities(out, "Assignment_Solution", "Assignment_Solution")
+        for sample, sigs in mixtures.items():
+            active = acts.loc[sample][acts.loc[sample] != 0]
+            assert set(active.index) == set(sigs), sample
+            for sig, n in sigs.items():
+                assert abs(active[sig] - n) <= 0.005 * n, (sample, sig, active[sig], n)
+
+    def test_arbitrary_context_with_custom_database_without_collapse(self, tmp_path):
+        contexts = ["CTX%02d" % i for i in range(10)]
+        samples, db, mixtures = _custom_context_inputs(tmp_path, contexts)
+        out = _run(Analyze.cosmic_fit, tmp_path / "out", samples=samples,
+                   signature_database=db, collapse_to_SBS96=False)
+        _assert_close(_activities(out, "Assignment_Solution", "Assignment_Solution"), mixtures)
+
+
 # ─── input errors ──────────────────────────────────────────────
 
 class TestInputErrors:
