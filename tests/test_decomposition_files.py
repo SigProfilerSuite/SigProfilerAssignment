@@ -262,7 +262,7 @@ class TestInputErrors:
 
     def test_decompose_unsupported_signature_context_without_database_raises_value_error(self, tmp_path):
         samples, db, _ = _custom_context_inputs(tmp_path, ["CTX%02d" % i for i in range(10)])
-        with pytest.raises(ValueError, match="Input signatures have 10 rows .* no COSMIC reference"):
+        with pytest.raises(ValueError, match="Input samples have 10 rows .* no COSMIC reference"):
             _run(Analyze.decompose_fit, tmp_path / "out", samples=samples, signatures=db,
                  collapse_to_SBS96=False)
 
