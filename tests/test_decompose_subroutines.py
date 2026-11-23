@@ -11,6 +11,7 @@ from SigProfilerAssignment.decompose_subroutines import (
     get_indeces,
     get_items_from_index,
     make_letter_ids,
+    probabilities,
     signature_plotting_text,
     union,
 )
@@ -137,3 +138,34 @@ class TestCorSim:
         # non-zero vector; cor_sim only special-cases all-zero input.
         result = cor_sim([5, 5, 5], [1, 2, 3])
         assert np.isnan(result)
+
+
+# ─── probabilities ──────────────────────────────────────────────
+
+class TestProbabilities:
+    W = np.array([[0.5, 0.1], [0.3, 0.2], [0.2, 0.7]])
+    H = np.array([[10.0, 0.0], [30.0, 5.0]])
+
+    def _probs(self):
+        return probabilities(self.W, self.H, ["c1", "c2", "c3"], ["sigA", "sigB"], ["S1", "S2"])
+
+    def test_one_row_per_context_and_sample(self):
+        probs = self._probs()
+        assert len(probs) == 6
+        assert list(probs.columns) == ["Sample Names", "MutationType", "sigA", "sigB"]
+        assert list(probs["Sample Names"]) == ["S1"] * 3 + ["S2"] * 3
+
+    def test_rows_with_reconstructed_mass_sum_to_one(self):
+        probs = self._probs()
+        assert np.allclose(probs[["sigA", "sigB"]].sum(axis=1), 1.0)
+
+    def test_matches_definition(self):
+        probs = self._probs()
+        # S1, context c2: sigA 0.3*10 = 3, sigB 0.2*30 = 6 -> 1/3 and 2/3
+        row = probs[(probs["Sample Names"] == "S1") & (probs["MutationType"] == "c2")]
+        assert row["sigA"].item() == pytest.approx(1 / 3)
+        assert row["sigB"].item() == pytest.approx(2 / 3)
+
+    def test_signature_without_activity_gets_zero(self):
+        probs = self._probs()
+        assert (probs.loc[probs["Sample Names"] == "S2", "sigA"] == 0).all()

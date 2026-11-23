@@ -1,5 +1,6 @@
 import pytest
 import argparse
+from SigProfilerAssignment.controllers import cli_controller
 from SigProfilerAssignment.controllers.cli_controller import (
     parse_arguments_common,
     str2bool,
@@ -83,6 +84,57 @@ def test_str2list():
     assert str2list("arg1,arg2,arg3") == ["arg1", "arg2","arg3"]
     assert str2list("arg_unique") == ["arg_unique"]
     assert str2list("wrong.sepparator") == ["wrong.sepparator"]
+
+
+# ─── CliController dispatch ──────────────────────────────────────────────
+
+
+@pytest.fixture
+def captured_call(monkeypatch):
+    """Replace spa_analyze with a recorder so dispatch can be tested without running an analysis."""
+    calls = []
+    monkeypatch.setattr(cli_controller.decomp, "spa_analyze", lambda **kw: calls.append(kw))
+    return calls
+
+
+class TestDispatch:
+    COMMON = ["in.txt", "out_dir", "--genome_build", "GRCh38", "--cosmic_version", "3.4",
+              "--nnls_add_penalty", "0.1", "--nnls_remove_penalty", "0.02",
+              "--connected_sigs", "False", "--cpu", "2"]
+
+    def _check_common(self, kw):
+        assert kw["samples"] == "in.txt"
+        assert kw["output"] == "out_dir"
+        assert kw["genome_build"] == "GRCh38"
+        assert kw["cosmic_version"] == 3.4
+        assert kw["nnls_add_penalty"] == 0.1
+        assert kw["nnls_remove_penalty"] == 0.02
+        assert kw["connected_sigs"] is False
+        assert kw["cpu"] == 2
+
+    def test_cosmic_fit(self, captured_call):
+        cli_controller.CliController().dispatch_cosmic_fit(self.COMMON)
+        (kw,) = captured_call
+        self._check_common(kw)
+        assert kw["cosmic_fit_option"] is True
+        assert kw["decompose_fit_option"] is False
+        assert kw["denovo_refit_option"] is False
+
+    def test_denovo_fit(self, captured_call):
+        cli_controller.CliController().dispatch_denovo_fit(self.COMMON + ["--signatures", "sigs.txt"])
+        (kw,) = captured_call
+        self._check_common(kw)
+        assert kw["signatures"] == "sigs.txt"
+        assert kw["denovo_refit_option"] is True
+        assert kw["cosmic_fit_option"] is False
+
+    def test_decompose_fit(self, captured_call):
+        cli_controller.CliController().dispatch_decompose_fit(self.COMMON + ["--signatures", "sigs.txt"])
+        (kw,) = captured_call
+        self._check_common(kw)
+        assert kw["signatures"] == "sigs.txt"
+        assert kw["decompose_fit_option"] is True
+        assert kw["cosmic_fit_option"] is False
 
 if __name__ == "__main__":
     pytest.main()
