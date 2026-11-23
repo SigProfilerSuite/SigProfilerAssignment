@@ -204,8 +204,8 @@ class TestCollapseToSbs96:
             labels.append("%s:%s[%s>%s]%s" % (strand, ctx[6].translate(comp), ctx[2].translate(comp),
                                                ctx[4].translate(comp), ctx[0].translate(comp)))
         matrix = pd.DataFrame({"S1": np.ones(len(labels))}, index=labels)
-        with pytest.raises(ValueError, match=r"not standard SBS96 contexts \(e\.g\. '.\[[AG]>.\].'\)\. "
-                                             r"Write substitutions from the pyrimidine base"):
+        with pytest.raises(ValueError, match=r"do not correspond to the COSMIC SBS96 contexts "
+                                             r"\(e\.g\. '.\[[AG]>.\].'\)\.$"):
             collapse_to_sbs96(matrix)
 
     def test_incomplete_contexts_raise_value_error(self):

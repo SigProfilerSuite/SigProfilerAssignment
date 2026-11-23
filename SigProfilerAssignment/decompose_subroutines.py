@@ -67,9 +67,8 @@ def collapse_to_sbs96(matrix):
     unexpected = [key for key in collapsed.index if key not in set(SBS96_CONTEXTS)]
     if unexpected:
         raise ValueError(
-            "Collapsing to SBS96 gave contexts that are not standard SBS96 contexts "
-            "(e.g. '{}'). Write substitutions from the pyrimidine base (C>A, C>G, C>T, "
-            "T>A, T>C, T>G), as in COSMIC.".format(unexpected[0])
+            "Collapsing to SBS96 gave contexts that do not correspond to the COSMIC SBS96 "
+            "contexts (e.g. '{}').".format(unexpected[0])
         )
     if set(collapsed.index) != set(SBS96_CONTEXTS):
         raise ValueError(
