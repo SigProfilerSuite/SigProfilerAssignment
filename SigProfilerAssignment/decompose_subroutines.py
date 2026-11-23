@@ -218,7 +218,7 @@ def getProcessAvg(
             # make_decomposition_plots=False
             del signature_database
         else:
-            sys.exit(
+            raise ValueError(
                 "The Signatures and the custom signature database have different context types."
             )
     sigDatabases = sigDatabase.reset_index()
@@ -343,6 +343,11 @@ def signature_decomposition(
         )
         # processAvg = processAvg.set_index('Type').rename_axis('MutationType')
     else:
+        if not os.path.isfile(signature_database):
+            raise FileNotFoundError(
+                "Signature database file not found: '{}'. "
+                "Check the path passed in 'signature_database'.".format(signature_database)
+            )
         try:
             sigDatabase = pd.read_csv(signature_database, sep="\t", index_col=0)
             # indx = sigDatabase.index()
@@ -366,10 +371,10 @@ def signature_decomposition(
             lognote.write(
                 "##### Using a custom signature database for decomposition #####"
             )
-        except:
-            sys.exit(
+        except Exception as e:
+            raise ValueError(
                 "Wrong format of signature database for decompose_fit, Please pass a text file of signatures in the format of COSMIC sig database"
-            )
+            ) from e
 
     sig_exclusion_list = [m_for_subgroups + items for items in sig_exclusion_list]
     lognote.write(

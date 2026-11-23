@@ -217,6 +217,46 @@ class TestInputErrors:
             _run(Analyze.cosmic_fit, output, samples=str(missing))
         assert not output.exists()
 
+    # audit SPA-2026-11 #2: library errors must raise exceptions, never sys.exit()
+    def test_invalid_input_type_raises_value_error(self, inputs, tmp_path):
+        with pytest.raises(ValueError, match="Invalid input_type"):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"], input_type="bam")
+
+    def test_exclude_signature_subgroups_not_a_list_raises_value_error(self, inputs, tmp_path):
+        with pytest.raises(ValueError, match="exclude_signature_subgroups"):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"],
+                 exclude_signature_subgroups="UV_signatures")
+
+    @pytest.mark.parametrize("fn", [Analyze.denovo_fit, Analyze.decompose_fit])
+    def test_missing_signatures_file_raises_file_not_found(self, fn, inputs, tmp_path):
+        with pytest.raises(FileNotFoundError, match="typo_signatures.txt"):
+            _run(fn, tmp_path / "out", samples=inputs["samples_path"],
+                 signatures=str(tmp_path / "typo_signatures.txt"))
+
+    def test_missing_signature_database_raises_file_not_found(self, inputs, tmp_path):
+        with pytest.raises(FileNotFoundError, match="typo_db.txt"):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"],
+                 signature_database=str(tmp_path / "typo_db.txt"))
+
+    def test_missing_signature_database_in_decompose_fit_raises_file_not_found(self, inputs, tmp_path):
+        with pytest.raises(FileNotFoundError, match="typo_db.txt"):
+            _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"],
+                 signatures=inputs["denovo_path"], signature_database=str(tmp_path / "typo_db.txt"))
+
+    def test_signature_database_with_other_row_count_raises_value_error(self, inputs, tmp_path):
+        db = pd.DataFrame(np.full((10, 2), 0.1), index=["CTX%02d" % i for i in range(10)], columns=["A", "B"])
+        db_path = tmp_path / "db10.txt"
+        db.to_csv(db_path, sep="\t")
+        with pytest.raises(ValueError, match="Input samples have 96 rows but signature_database has 10"):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"], signature_database=str(db_path))
+
+    def test_same_custom_context_with_collapse_raises_value_error(self, tmp_path):
+        # current behaviour for non-96 samples and database of the same context with the default
+        # collapse_to_SBS96=True; to be revisited with the planned collapse change
+        samples, db, _ = _custom_context_inputs(tmp_path, ["CTX%02d" % i for i in range(10)])
+        with pytest.raises(ValueError, match="collapse_to_SBS96"):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=samples, signature_database=db)
+
 
 # ─── denovo_fit ──────────────────────────────────────────────
 

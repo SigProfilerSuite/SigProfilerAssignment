@@ -363,7 +363,7 @@ def spa_analyze(
             # DataFrame or array input is used as given
             genomes = samples
     else:
-        sys.exit("Invalid input_type specified")
+        raise ValueError("Invalid input_type specified: '{}'".format(input_type))
 
     mutation_type = str(genomes.shape[0])
     m = mutation_type
@@ -462,7 +462,7 @@ def spa_analyze(
         pass
     else:
         if type(exclude_signature_subgroups) is not list:
-            sys.exit(
+            raise ValueError(
                 "exclude_signature_subgroups input should be a list of appropriate flags, please refer to documentation."
             )
         else:
@@ -570,15 +570,16 @@ def spa_analyze(
         #################
 
     if denovo_refit_option == True:
-        try:
-            processAvg = pd.read_csv(signatures, sep="\t", index_col=0)
-        except:
-            try:
-                processAvg = signatures
-            except:
-                sys.exit(
-                    "Error in formatting of input signatures, Pass a text file of signatures in the format of denovo signatures"
+        if isinstance(signatures, (str, os.PathLike)):
+            if not os.path.isfile(signatures):
+                raise FileNotFoundError(
+                    "Input signatures file not found: '{}'. "
+                    "Check the path passed in 'signatures'.".format(signatures)
                 )
+            processAvg = pd.read_csv(signatures, sep="\t", index_col=0)
+        else:
+            # DataFrame input is used as given
+            processAvg = signatures
 
         if devopts == None:
             listOfSignatures = processAvg.columns
@@ -770,15 +771,16 @@ def spa_analyze(
                 # Decomposition
                 #################
     if decompose_fit_option == True:
-        try:
-            processAvg = pd.read_csv(signatures, sep="\t", index_col=0)
-        except:
-            try:
-                processAvg = signatures
-            except:
-                sys.exit(
-                    "Error in formatting of input signatures, Pass a text file of signatures in the format of denovo signatures"
+        if isinstance(signatures, (str, os.PathLike)):
+            if not os.path.isfile(signatures):
+                raise FileNotFoundError(
+                    "Input signatures file not found: '{}'. "
+                    "Check the path passed in 'signatures'.".format(signatures)
                 )
+            processAvg = pd.read_csv(signatures, sep="\t", index_col=0)
+        else:
+            # DataFrame input is used as given
+            processAvg = signatures
 
         if devopts == None:
             listOfSignatures = processAvg.columns
@@ -995,6 +997,7 @@ def spa_analyze(
         #         sys.exit("Something is wrong with the format of input signatures, Pass a text file of signatures in the format of COSMIC sig database")
         index = genomes.index
         colnames = genomes.columns
+        n_input_contexts = genomes.shape[0]  # before any collapse to SBS96
         if (genomes.sum() == 0).sum() > 0:
             print("Removing samples with zero TMB ...... ")
             genomes = genomes.loc[:, (genomes != 0).any(axis=0)]
@@ -1027,13 +1030,24 @@ def spa_analyze(
                 exome=exome,
             )[0]
         else:
-
+            if not os.path.isfile(signature_database):
+                raise FileNotFoundError(
+                    "Signature database file not found: '{}'. "
+                    "Check the path passed in 'signature_database'.".format(signature_database)
+                )
             try:
                 processAvg = pd.read_csv(signature_database, sep="\t", index_col=0)
-
-            except:
-                sys.exit(
+            except Exception as e:
+                raise ValueError(
                     "Something is wrong with the format of signature database, Pass a text file of signatures in the format of COSMIC sig database"
+                ) from e
+            # the database must describe the same contexts as the samples (as given or collapsed)
+            if processAvg.shape[0] not in (n_input_contexts, genomes.shape[0]):
+                raise ValueError(
+                    "Input samples have {} rows but signature_database has {}. "
+                    "Samples and signatures must have the same mutation contexts.".format(
+                        n_input_contexts, processAvg.shape[0]
+                    )
                 )
 
         # collapse the 1596 context into 96 only for the decomposition
@@ -1104,7 +1118,7 @@ def spa_analyze(
                 sysdata.write("\n Assigning COSMIC sigs or Signature Database ...... ")
         if processAvg.shape[0] != 96:
             if genomes.shape[0] == processAvg.shape[0] and collapse_to_SBS96 == True:
-                sys.exit(
+                raise ValueError(
                     'Signatures Database and Samples are of same context type and is not equal to 96. please rerun by setting the flag "collapse_to_SBS96 = False "'
                 )
 
