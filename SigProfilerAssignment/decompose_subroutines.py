@@ -126,9 +126,10 @@ def _numeric_values(matrix):
     return frame.select_dtypes(include=[np.number])
 
 
-def check_samples_matrix(genomes):
-    """Validate input mutation counts. Raises ValueError for NaN, infinite or negative values and
-    for matrices that look like signatures/proportions; returns warning messages (non-integers)."""
+def check_samples_matrix(genomes, allow_proportions=False):
+    """Validate input mutation counts. Raises ValueError for NaN, infinite or negative values and,
+    unless allow_proportions is True (decompose_fit), for matrices that look like
+    signatures/proportions; returns warning messages."""
     values = _numeric_values(genomes)
     data = values.to_numpy(dtype=float)
     names = values.columns.astype(str)
@@ -156,13 +157,21 @@ def check_samples_matrix(genomes):
             )
         )
     if np.all(np.abs(data.sum(axis=0) - 1) <= 0.01):
-        raise ValueError(
-            "All columns of the input samples sum to ~1, so the input looks like signatures or "
-            "proportions rather than mutation counts. Activities are reported as integer mutation "
-            "counts, so each column would be treated as a single mutation. To decompose signatures "
-            "into a reference set (COSMIC or a custom signature_database), pass them as "
-            "'signatures' to decompose_fit; otherwise provide raw mutation counts."
-        )
+        if not allow_proportions:
+            raise ValueError(
+                "All columns of the input samples sum to ~1, so the input looks like signatures or "
+                "proportions rather than mutation counts. Activities are reported as integer mutation "
+                "counts, so each column would be treated as a single mutation. Provide raw mutation "
+                "counts; to decompose signatures into a reference set (COSMIC or a custom "
+                "signature_database), use decompose_fit, passing them as 'samples' and as 'signatures'."
+            )
+        # decompose_fit: the decomposition of 'signatures' is still valid
+        return [
+            "All columns of the input samples sum to ~1, so they look like signatures or proportions "
+            "rather than mutation counts. The decomposition of 'signatures' (De_Novo_map_to_COSMIC) is "
+            "not affected, but the sample activities are rounded to integer mutation counts that add up "
+            "to ~1 per column, so they are not meaningful."
+        ]
     warnings_found = []
     non_integer = (np.abs(data - np.round(data)) > 1e-9).any(axis=0)
     if non_integer.any():

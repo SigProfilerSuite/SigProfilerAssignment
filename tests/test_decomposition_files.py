@@ -447,14 +447,41 @@ class TestInputValidation:
                                              r"Mutation counts must be finite, non-negative numbers\.$"):
             _run(Analyze.cosmic_fit, tmp_path / "out", samples=path)
 
+    PROPORTIONS_ERROR = (
+        r"^All columns of the input samples sum to ~1, so the input looks like signatures or proportions rather "
+        r"than mutation counts\. Activities are reported as integer mutation counts, so each column would be "
+        r"treated as a single mutation\. Provide raw mutation counts; to decompose signatures into a reference set "
+        r"\(COSMIC or a custom signature_database\), use decompose_fit, passing them as 'samples' and as "
+        r"'signatures'\.$")
+
     def test_proportions_raise(self, inputs, tmp_path):
         path = tmp_path / "proportions.txt"
         (inputs["samples"] / inputs["samples"].sum()).to_csv(path, sep="\t")
-        with pytest.raises(ValueError, match=r"^All columns of the input samples sum to ~1, so the input looks like "
-                                             r"signatures or proportions rather than mutation counts\. .*pass them "
-                                             r"as 'signatures' to decompose_fit; otherwise provide raw mutation "
-                                             r"counts\.$"):
+        with pytest.raises(ValueError, match=self.PROPORTIONS_ERROR):
             _run(Analyze.cosmic_fit, tmp_path / "out", samples=str(path))
+
+    def test_proportions_raise_in_denovo_fit(self, inputs, tmp_path):
+        path = tmp_path / "proportions.txt"
+        (inputs["samples"] / inputs["samples"].sum()).to_csv(path, sep="\t")
+        with pytest.raises(ValueError, match=self.PROPORTIONS_ERROR):
+            _run(Analyze.denovo_fit, tmp_path / "out", samples=str(path), signatures=inputs["denovo_path"])
+
+    def test_decompose_fit_with_signatures_as_samples_warns_and_decomposes(self, inputs, tmp_path):
+        # known use: decompose signatures without samples by passing them as 'samples' too
+        out, printed = _run_capture(Analyze.decompose_fit, tmp_path / "out", samples=inputs["denovo_path"],
+                                    signatures=inputs["denovo_path"])
+        warning = ("All columns of the input samples sum to ~1, so they look like signatures or proportions "
+                   "rather than mutation counts. The decomposition of 'signatures' (De_Novo_map_to_COSMIC) is not "
+                   "affected, but the sample activities are rounded to integer mutation counts that add up to ~1 "
+                   "per column, so they are not meaningful.")
+        assert warning in printed
+        assert warning in open(os.path.join(out, "JOB_METADATA_SPA.txt")).read()
+        assert "non-integer values" not in printed
+        table = pd.read_csv(os.path.join(out, "Decompose_Solution", "De_Novo_map_to_COSMIC_SBS96.csv"),
+                            skipinitialspace=True)
+        mapping = dict(zip(table.iloc[:, 0], table.iloc[:, 1]))
+        assert mapping["Signature 96-SBS96A"] == "Signature SBS1 (60.00%) & Signature SBS5 (40.00%)"
+        assert mapping["Signature 96-SBS96B"] == "Signature SBS13 (100.00%)"
 
     def test_non_integer_counts_warn_and_run(self, inputs, tmp_path):
         path = tmp_path / "fractional.txt"

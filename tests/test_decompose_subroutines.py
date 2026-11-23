@@ -276,6 +276,10 @@ class TestCheckSamplesMatrix:
         with pytest.raises(ValueError, match=r"^All columns of the input samples sum to ~1"):
             check_samples_matrix(self._m(S1=[0.2, 0.3, 0.5], S2=[0.1, 0.1, 0.8]))
 
+    def test_proportions_only_warn_when_allowed(self):
+        (warning,) = check_samples_matrix(self._m(S1=[0.2, 0.3, 0.5], S2=[0.1, 0.1, 0.8]), allow_proportions=True)
+        assert warning.startswith("All columns of the input samples sum to ~1, so they look like signatures")
+
     def test_one_column_summing_to_one_is_not_proportions(self):
         assert check_samples_matrix(self._m(S1=[0, 1, 0], S2=[3, 5, 7])) == []
 

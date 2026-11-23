@@ -366,7 +366,7 @@ def spa_analyze(
         raise ValueError("Invalid input_type specified: '{}'".format(input_type))
 
     # validate the input mutation counts; warnings are printed now and recorded in the metadata
-    input_warnings = sub.check_samples_matrix(genomes)
+    input_warnings = sub.check_samples_matrix(genomes, allow_proportions=decompose_fit_option == True)
     for message in input_warnings:
         print(message)
 
