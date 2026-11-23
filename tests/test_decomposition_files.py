@@ -205,6 +205,65 @@ class TestCustomContext:
         _assert_close(_activities(out, "Assignment_Solution", "Assignment_Solution"), mixtures)
 
 
+# ─── collapse_to_SBS96 ──────────────────────────────────────────────
+
+def _expand_sbs96(df96, context, counts):
+    """Spread every SBS96 row over its extended-context rows (e.g. SBS288, SBS1536).
+    counts=True splits integer counts exactly (collapsing gives back df96);
+    counts=False splits probabilities evenly."""
+    from sigProfilerPlotting import sigProfilerPlotting as sigPlot
+    labels = sigPlot.get_context_reference(context)
+    groups = {}
+    for lab in labels:
+        i, j = lab.index("["), lab.index("]")
+        groups.setdefault(lab[i - 1:j + 2], []).append(lab)
+    rows = {}
+    for key, members in groups.items():
+        k = len(members)
+        for col in df96.columns:
+            v = df96.loc[key, col]
+            if counts:
+                base, rem = divmod(int(v), k)
+                parts = [base + (1 if n < rem else 0) for n in range(k)]
+            else:
+                parts = [v / k] * k
+            for lab, part in zip(members, parts):
+                rows.setdefault(lab, {})[col] = part
+    out = pd.DataFrame.from_dict(rows, orient="index").loc[labels, list(df96.columns)]
+    out.index.name = "MutationType"
+    return out
+
+
+class TestCollapseToSBS96:
+    @pytest.mark.parametrize("context", ["288", "1536"])
+    def test_extended_samples_collapse_to_the_sbs96_fit(self, context, cosmic_run, inputs, tmp_path):
+        path = tmp_path / ("samples%s.txt" % context)
+        _expand_sbs96(inputs["samples"], context, counts=True).to_csv(path, sep="\t")
+        out = _run(Analyze.cosmic_fit, tmp_path / "out", samples=str(path))
+        expected = _activities(cosmic_run, "Assignment_Solution", "Assignment_Solution")
+        pd.testing.assert_frame_equal(_activities(out, "Assignment_Solution", "Assignment_Solution"), expected)
+
+    def test_decompose_sbs288_collapses_to_the_sbs96_fit(self, decompose_run, inputs, tmp_path):
+        samples = tmp_path / "samples288.txt"
+        denovo = tmp_path / "denovo288.txt"
+        _expand_sbs96(inputs["samples"], "288", counts=True).to_csv(samples, sep="\t")
+        _expand_sbs96(_dummy_denovo_signatures(), "288", counts=False).to_csv(denovo, sep="\t")
+        out = _run(Analyze.decompose_fit, tmp_path / "out", samples=str(samples), signatures=str(denovo))
+        expected = _activities(decompose_run, "Decompose_Solution", "Decompose_Solution")
+        pd.testing.assert_frame_equal(_activities(out, "Decompose_Solution", "Decompose_Solution"), expected)
+
+    def test_decompose_with_sbs1536_custom_database_collapsed(self, inputs, tmp_path):
+        db = tmp_path / "db1536.txt"
+        _expand_sbs96(_cosmic()[["SBS1", "SBS5", "SBS13", "SBS2", "SBS40a"]], "1536", counts=False).to_csv(db, sep="\t")
+        out = _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"],
+                   signatures=inputs["denovo_path"], signature_database=str(db))
+        table = pd.read_csv(os.path.join(out, "Decompose_Solution", "De_Novo_map_to_COSMIC_SBS96.csv"),
+                            skipinitialspace=True)
+        mapping = dict(zip(table.iloc[:, 0], table.iloc[:, 1]))
+        assert mapping["Signature 96-SBS96A"] == "Signature SBS1 (60.00%) & Signature SBS5 (40.00%)"
+        assert mapping["Signature 96-SBS96B"] == "Signature SBS13 (100.00%)"
+
+
 # ─── input errors ──────────────────────────────────────────────
 
 class TestInputErrors:
