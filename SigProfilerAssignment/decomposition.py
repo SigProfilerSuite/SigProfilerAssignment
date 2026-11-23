@@ -352,9 +352,15 @@ def spa_analyze(
         genomes = genomes.set_index("MutationType")
 
     elif input_type.lower() == "matrix":
-        try:
+        if isinstance(samples, (str, os.PathLike)):
+            if not os.path.isfile(samples):
+                raise FileNotFoundError(
+                    "Input samples file not found: '{}'. "
+                    "Check the path passed in 'samples'.".format(samples)
+                )
             genomes = pd.read_csv(samples, sep="\t", index_col=0)
-        except:
+        else:
+            # DataFrame or array input is used as given
             genomes = samples
     else:
         sys.exit("Invalid input_type specified")

@@ -158,6 +158,19 @@ class TestCosmicFit:
         _assert_close(acts, MIXTURES)
 
 
+# ─── input errors ──────────────────────────────────────────────
+
+class TestInputErrors:
+    def test_missing_samples_file_raises_file_not_found(self, tmp_path):
+        # audit SPA-2026-11 #1: a mistyped path used to fail later with
+        # "AttributeError: 'str' object has no attribute 'shape'"
+        missing = tmp_path / "typo_samples.txt"
+        output = tmp_path / "out"
+        with pytest.raises(FileNotFoundError, match="typo_samples.txt"):
+            _run(Analyze.cosmic_fit, output, samples=str(missing))
+        assert not output.exists()
+
+
 # ─── denovo_fit ──────────────────────────────────────────────
 
 class TestDenovoFit:
