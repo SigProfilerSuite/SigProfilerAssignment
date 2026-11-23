@@ -250,6 +250,22 @@ class TestInputErrors:
         with pytest.raises(ValueError, match="Input samples have 96 rows but signature_database has 10"):
             _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"], signature_database=str(db_path))
 
+    # audit SPA-2026-11 #19: without a signature_database, an unsupported context must not
+    # silently use the samples themselves as the signature database
+    @pytest.mark.parametrize("collapse", [False, True])
+    def test_unsupported_context_without_database_raises_value_error(self, inputs, tmp_path, collapse):
+        samples95 = inputs["samples"].drop(inputs["samples"].index[10])
+        path = tmp_path / "samples95.txt"
+        samples95.to_csv(path, sep="\t")
+        with pytest.raises(ValueError, match="Input samples have 95 rows .* no COSMIC reference"):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=str(path), collapse_to_SBS96=collapse)
+
+    def test_decompose_unsupported_signature_context_without_database_raises_value_error(self, tmp_path):
+        samples, db, _ = _custom_context_inputs(tmp_path, ["CTX%02d" % i for i in range(10)])
+        with pytest.raises(ValueError, match="Input signatures have 10 rows .* no COSMIC reference"):
+            _run(Analyze.decompose_fit, tmp_path / "out", samples=samples, signatures=db,
+                 collapse_to_SBS96=False)
+
     def test_same_custom_context_with_collapse_raises_value_error(self, tmp_path):
         # current behaviour for non-96 samples and database of the same context with the default
         # collapse_to_SBS96=True; to be revisited with the planned collapse change

@@ -201,11 +201,13 @@ def getProcessAvg(
         signames = sigDatabase.columns
         connected_sigs = False
     else:
-        sigDatabase = pd.DataFrame(samples)
-        sigDatabase.columns = sigDatabase.columns.astype(str)
-        sigDatabase.index = sigDatabase.index.astype(str)
-        signames = sigDatabase.columns
-        connected_sigs = False
+        # never use the input itself as the reference (audit SPA-2026-11 #19)
+        raise ValueError(
+            "Input samples have {} rows (mutation contexts) and no COSMIC reference exists "
+            "for that context. Provide a signature_database with the same mutation contexts "
+            "as the samples (e.g. for SBS4608), or check the input matrix for missing or "
+            "extra rows.".format(samples.shape[0])
+        )
 
     return sigDatabase, signames, connected_sigs, genome_build
 
@@ -335,6 +337,13 @@ def signature_decomposition(
     lognote.write("Genome Build: {}\n".format(genome_build))
 
     if signature_database == None:
+        if signatures.shape[0] not in (96, 288, 1536, 78, 83, 48, 32):
+            raise ValueError(
+                "Input signatures have {} rows (mutation contexts) and no COSMIC reference "
+                "exists for that context. Provide a signature_database with the same mutation "
+                "contexts as the signatures (e.g. for SBS4608), or check the input matrix for "
+                "missing or extra rows.".format(signatures.shape[0])
+            )
         sigDatabase, signames, connected_sigs, genome_build = getProcessAvg(
             signatures,
             genome_build=genome_build,

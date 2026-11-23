@@ -3,12 +3,14 @@ No genome reference required.
 Run with: pytest tests/test_decompose_subroutines.py -v
 """
 import numpy as np
+import pandas as pd
 import pytest
 
 from SigProfilerAssignment.decompose_subroutines import (
     cor_sim,
     cos_sim,
     get_indeces,
+    getProcessAvg,
     get_items_from_index,
     make_letter_ids,
     probabilities,
@@ -138,6 +140,16 @@ class TestCorSim:
         # non-zero vector; cor_sim only special-cases all-zero input.
         result = cor_sim([5, 5, 5], [1, 2, 3])
         assert np.isnan(result)
+
+
+# ─── getProcessAvg ──────────────────────────────────────────────
+
+class TestGetProcessAvg:
+    def test_unsupported_context_raises_value_error(self):
+        # audit SPA-2026-11 #19: used to return the input itself as the signature database
+        samples = pd.DataFrame(np.ones((95, 2)), index=["C%02d" % i for i in range(95)], columns=["S1", "S2"])
+        with pytest.raises(ValueError, match="Input samples have 95 rows"):
+            getProcessAvg(samples)
 
 
 # ─── probabilities ──────────────────────────────────────────────
