@@ -446,6 +446,7 @@ def signature_decomposition(
             signatures,
             genome_build=genome_build,
             cosmic_version=cosmic_version,
+            connected_sigs=connected_sigs,
             exome=exome,
         )
         # processAvg = processAvg.set_index('Type').rename_axis('MutationType')

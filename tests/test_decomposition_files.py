@@ -451,6 +451,18 @@ class TestDecompositionParameters:
         assert decomposition_calls
         assert all(c["add_penalty"] == 0.2 and c["remove_penalty"] == 0.1 for c in decomposition_calls)
 
+    def test_default_connected_sigs_reaches_the_decomposition(self, decomposition_calls, inputs, tmp_path):
+        _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=inputs["denovo_path"])
+        assert decomposition_calls
+        assert all(c["connected_sigs"] is True for c in decomposition_calls)
+
+    def test_connected_sigs_false_reaches_the_decomposition(self, decomposition_calls, inputs, tmp_path):
+        # audit SPA-2026-11 #13: getProcessAvg's default True overwrote the user's False
+        _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=inputs["denovo_path"],
+             connected_sigs=False)
+        assert decomposition_calls
+        assert all(c["connected_sigs"] is False for c in decomposition_calls)
+
 
 # ─── input errors ──────────────────────────────────────────────
 
