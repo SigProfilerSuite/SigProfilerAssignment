@@ -29,6 +29,49 @@ from scipy.spatial.distance import correlation as cor
 from alive_progress import alive_bar
 from joblib import Parallel, delayed
 from multiprocessing import cpu_count
+import re
+
+
+# SBS context with flanks, optional strand prefix: e.g. 'T:A[C>A]A' (SBS288/SBS384),
+# 'AA[C>A]AA' (SBS1536), 'T:AA[C>A]AA' (SBS4608/SBS6144)
+_SBS_CONTEXT = re.compile(r"^(?:[A-Z]:)?[ACGT]*([ACGT])\[([ACGT]>[ACGT])\]([ACGT])[ACGT]*$")
+SBS96_CONTEXTS = sorted(
+    "{}[{}]{}".format(five, substitution, three)
+    for substitution in ("C>A", "C>G", "C>T", "T>A", "T>C", "T>G")
+    for five in "ACGT"
+    for three in "ACGT"
+)
+
+
+def is_extended_sbs(contexts):
+    """True when there are more than 96 contexts and all of them are SBS contexts with
+    flanks (W[X>Y]Z, optionally with a strand prefix), so they can be collapsed to SBS96."""
+    contexts = [str(c) for c in contexts]
+    return len(contexts) > 96 and all(_SBS_CONTEXT.match(c) for c in contexts)
+
+
+def collapse_to_sbs96(matrix):
+    """Sum the rows of an extended SBS matrix (SBS288, SBS384, SBS1536, SBS4608, ...) into the
+    96 trinucleotide contexts, using the matrix's own row labels. Returns a DataFrame in the
+    canonical SBS96 order."""
+    keys = []
+    for label in matrix.index.astype(str):
+        match = _SBS_CONTEXT.match(label)
+        if match is None:
+            raise ValueError(
+                "Cannot collapse to SBS96: '{}' is not an SBS mutation context of the form "
+                "W[X>Y]Z.".format(label)
+            )
+        keys.append("{}[{}]{}".format(match.group(1), match.group(2), match.group(3)))
+    collapsed = matrix.groupby(keys).sum()
+    if set(collapsed.index) != set(SBS96_CONTEXTS):
+        raise ValueError(
+            "Collapsing to SBS96 gave {} trinucleotide contexts instead of 96; the input does "
+            "not contain every SBS96 context.".format(len(collapsed))
+        )
+    collapsed = collapsed.loc[SBS96_CONTEXTS]
+    collapsed.index.name = matrix.index.name
+    return collapsed
 
 
 def getProcessAvg(
@@ -353,16 +396,10 @@ def signature_decomposition(
         try:
             sigDatabase = pd.read_csv(signature_database, sep="\t", index_col=0)
             # indx = sigDatabase.index()
-            if (
-                sigDatabase.shape[0] == 1536 and collapse_to_SBS96
-            ):  # collapse the 1596 context into 96 only for the deocmposition
-                sigDatabase = sigDatabase.groupby(sigDatabase.index.str[1:8]).sum()
-
-            elif (
-                sigDatabase.shape[0] == 288 and collapse_to_SBS96
-            ):  # collapse the 288 context into 96 only for the deocmposition
-                # sigDatabase = pd.DataFrame(processAvg, index=index)
-                sigDatabase = sigDatabase.groupby(sigDatabase.index.str[2:9]).sum()
+            # collapse an extended SBS database (SBS288, SBS1536, SBS4608, ...) into SBS96 only
+            # for the decomposition, from its own labels
+            if collapse_to_SBS96 and is_extended_sbs(sigDatabase.index):
+                sigDatabase = collapse_to_sbs96(sigDatabase)
 
             if (
                 sigDatabase.shape[0] == 78

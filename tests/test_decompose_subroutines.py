@@ -7,10 +7,12 @@ import pandas as pd
 import pytest
 
 from SigProfilerAssignment.decompose_subroutines import (
+    collapse_to_sbs96,
     cor_sim,
     cos_sim,
     get_indeces,
     getProcessAvg,
+    is_extended_sbs,
     get_items_from_index,
     make_letter_ids,
     probabilities,
@@ -140,6 +142,64 @@ class TestCorSim:
         # non-zero vector; cor_sim only special-cases all-zero input.
         result = cor_sim([5, 5, 5], [1, 2, 3])
         assert np.isnan(result)
+
+
+# ─── is_extended_sbs / collapse_to_sbs96 ──────────────────────────────────────────────
+
+def _context(plot_type):
+    from sigProfilerPlotting import sigProfilerPlotting as sigPlot
+    return sigPlot.get_context_reference(plot_type)
+
+
+class TestIsExtendedSbs:
+    @pytest.mark.parametrize("plot_type", ["288", "384", "1536", "4608", "6144"])
+    def test_extended_sbs_contexts(self, plot_type):
+        assert is_extended_sbs(_context(plot_type))
+
+    def test_sbs96_is_not_extended(self):
+        assert not is_extended_sbs(_context("96"))
+
+    @pytest.mark.parametrize("plot_type", ["78", "83"])
+    def test_dbs_and_id_are_not_extended_sbs(self, plot_type):
+        assert not is_extended_sbs(_context(plot_type))
+
+    def test_arbitrary_labels_are_not_extended_sbs(self):
+        assert not is_extended_sbs(["CTX%03d" % i for i in range(200)])
+
+
+class TestCollapseToSbs96:
+    @pytest.mark.parametrize("plot_type", ["288", "384", "1536", "4608", "6144"])
+    def test_gives_the_96_contexts_in_canonical_order(self, plot_type):
+        labels = _context(plot_type)
+        matrix = pd.DataFrame({"S1": np.ones(len(labels))}, index=labels)
+        collapsed = collapse_to_sbs96(matrix)
+        assert list(collapsed.index) == _context("96")
+        assert collapsed["S1"].sum() == len(labels)
+
+    def test_sums_rows_by_central_trinucleotide(self):
+        labels = _context("288")
+        matrix = pd.DataFrame({"S1": np.arange(len(labels), dtype=float)}, index=labels)
+        collapsed = collapse_to_sbs96(matrix)
+        expected = sum(matrix.loc[lab, "S1"] for lab in labels if lab.endswith("A[C>A]A"))
+        assert collapsed.loc["A[C>A]A", "S1"] == expected
+
+    def test_label_order_does_not_matter(self):
+        labels = _context("1536")
+        matrix = pd.DataFrame({"S1": np.arange(len(labels), dtype=float)}, index=labels)
+        shuffled = matrix.iloc[::-1]
+        pd.testing.assert_frame_equal(collapse_to_sbs96(shuffled), collapse_to_sbs96(matrix))
+
+    def test_non_sbs_label_raises_value_error(self):
+        matrix = pd.DataFrame({"S1": [1.0, 2.0]}, index=["A[C>A]A", "DBS_AC>CA"])
+        with pytest.raises(ValueError, match="DBS_AC>CA"):
+            collapse_to_sbs96(matrix)
+
+    def test_incomplete_contexts_raise_value_error(self):
+        # drop every strand variant of one trinucleotide, so only 95 contexts remain
+        labels = [lab for lab in _context("288") if not lab.endswith("T[T>G]T")]
+        matrix = pd.DataFrame({"S1": np.ones(len(labels))}, index=labels)
+        with pytest.raises(ValueError, match="95"):
+            collapse_to_sbs96(matrix)
 
 
 # ─── getProcessAvg ──────────────────────────────────────────────

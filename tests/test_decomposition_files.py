@@ -252,6 +252,24 @@ class TestCollapseToSBS96:
         expected = _activities(decompose_run, "Decompose_Solution", "Decompose_Solution")
         pd.testing.assert_frame_equal(_activities(out, "Decompose_Solution", "Decompose_Solution"), expected)
 
+    # audit SPA-2026-11 #15: samples and database are collapsed separately, each from its own labels
+    @pytest.mark.parametrize("context", ["288", "1536", "4608"])
+    def test_extended_samples_and_custom_database_collapse_separately(self, context, inputs, tmp_path):
+        samples, db = tmp_path / "samples.txt", tmp_path / "db.txt"
+        _expand_sbs96(inputs["samples"], context, counts=True).to_csv(samples, sep="\t")
+        _expand_sbs96(_cosmic()[["SBS1", "SBS5", "SBS13", "SBS2", "SBS40a"]], context, counts=False).to_csv(db, sep="\t")
+        out = _run(Analyze.cosmic_fit, tmp_path / "out", samples=str(samples), signature_database=str(db))
+        _assert_close(_activities(out, "Assignment_Solution", "Assignment_Solution"), MIXTURES)
+
+    # any SBS context of the form W[X>Y]Z collapses, not only SBS288 and SBS1536
+    @pytest.mark.parametrize("context", ["384", "4608", "6144"])
+    def test_other_extended_samples_collapse_to_the_sbs96_fit(self, context, cosmic_run, inputs, tmp_path):
+        path = tmp_path / ("samples%s.txt" % context)
+        _expand_sbs96(inputs["samples"], context, counts=True).to_csv(path, sep="\t")
+        out = _run(Analyze.cosmic_fit, tmp_path / "out", samples=str(path))
+        expected = _activities(cosmic_run, "Assignment_Solution", "Assignment_Solution")
+        pd.testing.assert_frame_equal(_activities(out, "Assignment_Solution", "Assignment_Solution"), expected)
+
     def test_decompose_with_sbs1536_custom_database_collapsed(self, inputs, tmp_path):
         db = tmp_path / "db1536.txt"
         _expand_sbs96(_cosmic()[["SBS1", "SBS5", "SBS13", "SBS2", "SBS40a"]], "1536", counts=False).to_csv(db, sep="\t")

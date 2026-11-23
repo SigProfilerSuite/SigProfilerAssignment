@@ -884,30 +884,16 @@ def spa_analyze(
         except:
             print("The {} folder could not be created".format("Decomposed_Solution"))
 
-        if (
-            processAvg.shape[0] == 1536 and collapse_to_SBS96 == True
-        ):  # collapse the 1536 context into 96 only for the decomposition
-            processAvg = pd.DataFrame(processAvg, index=index)
-            processAvg = processAvg.groupby(processAvg.index.str[1:8]).sum()
-            genomes = genomes.groupby(genomes.index.str[1:8]).sum()
+        # collapse extended SBS contexts (SBS288, SBS1536, SBS4608, ...) into SBS96 only for the
+        # decomposition; the de novo signatures are aligned to the sample contexts
+        if collapse_to_SBS96 == True and sub.is_extended_sbs(index):
+            # np.array copies: the decomposition writes into this matrix
+            processAvg = np.array(sub.collapse_to_sbs96(pd.DataFrame(processAvg, index=index)))
+            genomes = sub.collapse_to_sbs96(pd.DataFrame(genomes, index=index))
             index = genomes.index
-            # Also collapse originalProcessAvg to match the collapsed context
-            # originalProcessAvg has mutation types in the index, so group by index directly
-            originalProcessAvg = originalProcessAvg.groupby(originalProcessAvg.index.str[1:8]).sum()
-            processAvg = np.array(processAvg)
-
-        if (
-            processAvg.shape[0] == 288 and collapse_to_SBS96 == True
-        ):  # collapse the 288 context into 96 only for the decomposition
-            processAvg = pd.DataFrame(processAvg, index=index)
-            processAvg = processAvg.groupby(processAvg.index.str[2:9]).sum()
-            genomes = pd.DataFrame(genomes, index=index)
-            genomes = genomes.groupby(genomes.index.str[2:9]).sum()
-            index = genomes.index
-            # Also collapse originalProcessAvg to match the collapsed context
-            # originalProcessAvg has mutation types in the index, so group by index directly
-            originalProcessAvg = originalProcessAvg.groupby(originalProcessAvg.index.str[2:9]).sum()
-            processAvg = np.array(processAvg)
+            # originalProcessAvg keeps the de novo names; collapse it from its own labels
+            if sub.is_extended_sbs(originalProcessAvg.index):
+                originalProcessAvg = sub.collapse_to_sbs96(originalProcessAvg)
 
         print("\n Decomposing De Novo Signatures  .....")
         current_time_start = datetime.datetime.now()
@@ -1020,23 +1006,10 @@ def spa_analyze(
             genomes = genomes.loc[:, (genomes != 0).any(axis=0)]
             colnames = genomes.columns
 
-        if (
-            genomes.shape[0] == 1536 and collapse_to_SBS96 == True
-        ):  # collapse the 1596 context into 96 only for the deocmposition
-            # processAvg = pd.DataFrame(processAvg, index=index)
-            # processAvg = processAvg.groupby(processAvg.index.str[1:8]).sum()
-            genomes = pd.DataFrame(genomes, index=index)
-            genomes = genomes.groupby(genomes.index.str[1:8]).sum()
-            index = genomes.index
-            # processAvg = np.array(processAvg)
-
-        if (
-            genomes.shape[0] == 288 and collapse_to_SBS96 == True
-        ):  # collapse the 288 context into 96 only for the deocmposition
-            # processAvg = pd.DataFrame(processAvg, index=index)
-            # processAvg = processAvg.groupby(processAvg.index.str[2:9]).sum()
-            genomes = pd.DataFrame(genomes, index=index)
-            genomes = genomes.groupby(genomes.index.str[2:9]).sum()
+        # collapse extended SBS contexts (SBS288, SBS1536, SBS4608, ...) into SBS96; the samples
+        # and the signature database are collapsed separately, each from its own labels
+        if collapse_to_SBS96 == True and sub.is_extended_sbs(genomes.index):
+            genomes = sub.collapse_to_sbs96(pd.DataFrame(genomes, index=index))
             index = genomes.index
 
         if signature_database == None:
@@ -1058,31 +1031,17 @@ def spa_analyze(
                 raise ValueError(
                     "Something is wrong with the format of signature database, Pass a text file of signatures in the format of COSMIC sig database"
                 ) from e
-            # the database must describe the same contexts as the samples (as given or collapsed)
-            if processAvg.shape[0] not in (n_input_contexts, genomes.shape[0]):
+            n_database_contexts = processAvg.shape[0]
+            if collapse_to_SBS96 == True and sub.is_extended_sbs(processAvg.index):
+                processAvg = sub.collapse_to_sbs96(processAvg)
+            # the database must describe the same contexts as the samples (both possibly collapsed)
+            if processAvg.shape[0] != genomes.shape[0]:
                 raise ValueError(
                     "Input samples have {} rows but signature_database has {}. "
                     "Samples and signatures must have the same mutation contexts.".format(
-                        n_input_contexts, processAvg.shape[0]
+                        n_input_contexts, n_database_contexts
                     )
                 )
-
-        # collapse the 1596 context into 96 only for the decomposition
-        if processAvg.shape[0] == 1536 and collapse_to_SBS96 == True:
-            processAvg = pd.DataFrame(processAvg, index=index)
-            processAvg = processAvg.groupby(processAvg.index.str[1:8]).sum()
-            genomes = pd.DataFrame(genomes, index=index)
-            genomes = genomes.groupby(genomes.index.str[1:8]).sum()
-            index = genomes.index
-
-        if (
-            processAvg.shape[0] == 288 and collapse_to_SBS96 == True
-        ):  # collapse the 288 context into 96 only for the deocmposition
-            processAvg = pd.DataFrame(processAvg, index=index)
-            processAvg = processAvg.groupby(processAvg.index.str[2:9]).sum()
-            genomes = pd.DataFrame(genomes, index=index)
-            genomes = genomes.groupby(genomes.index.str[2:9]).sum()
-            index = genomes.index
 
         # processAvg is sigdatabase: remove sigs corresponding to exclusion rules.
         sig_exclusion_list = [m_for_subgroups + items for items in sig_exclusion_list]
