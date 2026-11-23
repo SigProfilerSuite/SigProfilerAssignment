@@ -337,6 +337,87 @@ class TestCollapseNotApplicable:
         assert "collapse_to_SBS96=True only applies" not in printed
 
 
+# ─── signature rows are matched to the samples by label ─────────────────────────
+
+def _shuffled(df, seed):
+    return df.sample(frac=1, random_state=seed)
+
+
+class TestSignatureRowAlignment:
+    # audit SPA-2026-11 #5: signature matrices used to be used by row position
+    DB_SIGS = ["SBS1", "SBS5", "SBS13", "SBS2", "SBS40a"]
+
+    def test_cosmic_fit_shuffled_signature_database(self, inputs, tmp_path):
+        db = tmp_path / "db_shuffled.txt"
+        _shuffled(_cosmic()[self.DB_SIGS], 7).to_csv(db, sep="\t")
+        out = _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"], signature_database=str(db))
+        _assert_close(_activities(out, "Assignment_Solution", "Assignment_Solution"), MIXTURES)
+
+    def test_denovo_fit_shuffled_signatures(self, denovo_run, inputs, tmp_path):
+        sigs = tmp_path / "denovo_shuffled.txt"
+        _shuffled(_dummy_denovo_signatures(), 3).to_csv(sigs, sep="\t")
+        out = _run(Analyze.denovo_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=str(sigs))
+        pd.testing.assert_frame_equal(_activities(out, "De_Novo_Solution", "De_Novo"),
+                                      _activities(denovo_run, "De_Novo_Solution", "De_Novo"))
+
+    def test_decompose_fit_shuffled_signatures(self, decompose_run, inputs, tmp_path):
+        sigs = tmp_path / "denovo_shuffled.txt"
+        _shuffled(_dummy_denovo_signatures(), 3).to_csv(sigs, sep="\t")
+        out = _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=str(sigs))
+        pd.testing.assert_frame_equal(_activities(out, "Decompose_Solution", "Decompose_Solution"),
+                                      _activities(decompose_run, "Decompose_Solution", "Decompose_Solution"))
+
+    def test_decompose_fit_shuffled_signature_database(self, inputs, tmp_path):
+        db = tmp_path / "db_shuffled.txt"
+        _shuffled(_cosmic()[self.DB_SIGS], 5).to_csv(db, sep="\t")
+        out = _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"],
+                   signatures=inputs["denovo_path"], signature_database=str(db))
+        table = pd.read_csv(os.path.join(out, "Decompose_Solution", "De_Novo_map_to_COSMIC_SBS96.csv"),
+                            skipinitialspace=True)
+        assert dict(zip(table.iloc[:, 0], table.iloc[:, 1]))["Signature 96-SBS96A"] == \
+            "Signature SBS1 (60.00%) & Signature SBS5 (40.00%)"
+
+    def test_signature_database_with_duplicated_context_raises(self, inputs, tmp_path):
+        db = _cosmic()[self.DB_SIGS].copy()
+        db.index = [db.index[0]] + list(db.index[1:-1]) + [db.index[0]]
+        path = tmp_path / "db_dup.txt"
+        db.to_csv(path, sep="\t")
+        with pytest.raises(ValueError, match=r"^signature_database has duplicated mutation contexts: A\[C>A\]A\. "
+                                             r"Each mutation context must appear only once\.$"):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"], signature_database=str(path))
+
+    def test_signature_database_with_other_contexts_raises(self, inputs, tmp_path):
+        db = _cosmic()[self.DB_SIGS].copy()
+        db.index = list(db.index[:-1]) + ["X[C>A]A"]
+        path = tmp_path / "db_other.txt"
+        db.to_csv(path, sep="\t")
+        with pytest.raises(ValueError, match=r"^signature_database and the input samples have different mutation "
+                                             r"contexts \(missing in signature_database: T\[T>G\]T; not in the "
+                                             r"samples: X\[C>A\]A\)\. Samples and signatures must have the same "
+                                             r"mutation contexts\.$"):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"], signature_database=str(path))
+
+    def test_signatures_with_duplicated_context_raises(self, inputs, tmp_path):
+        sigs = _dummy_denovo_signatures()
+        sigs.index = [sigs.index[0]] + list(sigs.index[1:-1]) + [sigs.index[0]]
+        path = tmp_path / "denovo_dup.txt"
+        sigs.to_csv(path, sep="\t")
+        with pytest.raises(ValueError, match=r"^The matrix passed in 'signatures' has duplicated mutation contexts: "
+                                             r"A\[C>A\]A\. Each mutation context must appear only once\.$"):
+            _run(Analyze.denovo_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=str(path))
+
+    def test_signatures_with_other_contexts_raises(self, inputs, tmp_path):
+        sigs = _dummy_denovo_signatures()
+        sigs.index = list(sigs.index[:-1]) + ["X[C>A]A"]
+        path = tmp_path / "denovo_other.txt"
+        sigs.to_csv(path, sep="\t")
+        with pytest.raises(ValueError, match=r"^The matrix passed in 'signatures' and the input samples have "
+                                             r"different mutation contexts \(missing in 'signatures': T\[T>G\]T; "
+                                             r"not in the samples: X\[C>A\]A\)\. Samples and signatures must have "
+                                             r"the same mutation contexts\.$"):
+            _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=str(path))
+
+
 # ─── input errors ──────────────────────────────────────────────
 
 class TestInputErrors:

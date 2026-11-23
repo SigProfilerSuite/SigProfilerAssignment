@@ -580,6 +580,11 @@ def spa_analyze(
         else:
             # DataFrame input is used as given
             processAvg = signatures
+        # match the signature rows to the sample contexts by label
+        if devopts == None and isinstance(processAvg, pd.DataFrame):
+            processAvg = sub.align_signatures_to_contexts(
+                processAvg, genomes.index, "The matrix passed in 'signatures'", "'signatures'"
+            )
 
         if devopts == None:
             listOfSignatures = processAvg.columns
@@ -797,6 +802,11 @@ def spa_analyze(
                 "Samples and signatures must have the same mutation contexts.".format(
                     processAvg.shape[0], genomes.shape[0]
                 )
+            )
+        # match the signature rows to the sample contexts by label
+        if devopts == None and isinstance(processAvg, pd.DataFrame):
+            processAvg = sub.align_signatures_to_contexts(
+                processAvg, genomes.index, "The matrix passed in 'signatures'", "'signatures'"
             )
 
         if devopts == None:
@@ -1054,6 +1064,10 @@ def spa_analyze(
                         n_input_contexts, n_database_contexts
                     )
                 )
+            # match the database rows to the sample contexts by label
+            processAvg = sub.align_signatures_to_contexts(
+                processAvg, genomes.index, "signature_database", "signature_database"
+            )
 
         # processAvg is sigdatabase: remove sigs corresponding to exclusion rules.
         sig_exclusion_list = [m_for_subgroups + items for items in sig_exclusion_list]

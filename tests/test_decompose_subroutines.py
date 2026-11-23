@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from SigProfilerAssignment.decompose_subroutines import (
+    align_signatures_to_contexts,
     collapse_not_applicable_message,
     collapse_to_sbs96,
     cor_sim,
@@ -214,6 +215,44 @@ class TestCollapseToSbs96:
         matrix = pd.DataFrame({"S1": np.ones(len(labels))}, index=labels)
         with pytest.raises(ValueError, match="95"):
             collapse_to_sbs96(matrix)
+
+
+class TestAlignSignaturesToContexts:
+    CONTEXTS = ["c1", "c2", "c3"]
+
+    def _sigs(self, index):
+        return pd.DataFrame({"A": range(len(index)), "B": range(10, 10 + len(index))}, index=index)
+
+    def test_reorders_rows_to_the_sample_contexts(self):
+        sigs = self._sigs(["c3", "c1", "c2"])
+        aligned = align_signatures_to_contexts(sigs, self.CONTEXTS, "signature_database", "signature_database")
+        assert list(aligned.index) == self.CONTEXTS
+        assert list(aligned["A"]) == [1, 2, 0]
+
+    def test_same_order_is_unchanged(self):
+        sigs = self._sigs(self.CONTEXTS)
+        aligned = align_signatures_to_contexts(sigs, self.CONTEXTS, "signature_database", "signature_database")
+        pd.testing.assert_frame_equal(aligned, sigs)
+
+    def test_duplicated_context_raises(self):
+        with pytest.raises(ValueError, match=r"^signature_database has duplicated mutation contexts: c1\. "):
+            align_signatures_to_contexts(self._sigs(["c1", "c2", "c1"]), self.CONTEXTS,
+                                         "signature_database", "signature_database")
+
+    def test_missing_and_unexpected_contexts_raise(self):
+        with pytest.raises(ValueError, match=r"\(missing in 'signatures': c3; not in the samples: x9\)"):
+            align_signatures_to_contexts(self._sigs(["c1", "c2", "x9"]), self.CONTEXTS,
+                                         "The matrix passed in 'signatures'", "'signatures'")
+
+    def test_only_missing_contexts_are_listed_alone(self):
+        with pytest.raises(ValueError, match=r"\(missing in signature_database: c3\)\. "):
+            align_signatures_to_contexts(self._sigs(["c1", "c2"]), self.CONTEXTS,
+                                         "signature_database", "signature_database")
+
+    def test_long_lists_are_truncated(self):
+        contexts = ["c%d" % i for i in range(8)]
+        with pytest.raises(ValueError, match=r"missing in signature_database: c0, c1, c2, c3, c4, \.\.\.; not in the samples: z\)"):
+            align_signatures_to_contexts(self._sigs(["z"]), contexts, "signature_database", "signature_database")
 
 
 class TestCollapseNotApplicableMessage:

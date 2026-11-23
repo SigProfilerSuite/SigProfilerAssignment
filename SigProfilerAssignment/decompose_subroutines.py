@@ -80,6 +80,46 @@ def collapse_to_sbs96(matrix):
     return collapsed
 
 
+def _first_items(items, n=5):
+    items = [str(x) for x in items]
+    return ", ".join(items[:n]) + (", ..." if len(items) > n else "")
+
+
+def align_signatures_to_contexts(signatures, contexts, subject, short_name):
+    """Check that `signatures` (indexed by mutation context) has the same contexts as the
+    samples, without duplicates, and return it with its rows in the order of `contexts`.
+    `subject` and `short_name` name the matrix in error messages, e.g.
+    ("signature_database", "signature_database") or
+    ("The matrix passed in 'signatures'", "'signatures'")."""
+    labels = signatures.index.astype(str)
+    duplicated = labels[labels.duplicated()].unique()
+    if len(duplicated):
+        raise ValueError(
+            "{} has duplicated mutation contexts: {}. Each mutation context must appear "
+            "only once.".format(subject, _first_items(duplicated))
+        )
+    contexts = [str(c) for c in contexts]
+    present = set(labels)
+    missing = [c for c in contexts if c not in present]
+    expected = set(contexts)
+    unexpected = [lab for lab in labels if lab not in expected]
+    if missing or unexpected:
+        parts = []
+        if missing:
+            parts.append("missing in {}: {}".format(short_name, _first_items(missing)))
+        if unexpected:
+            parts.append("not in the samples: {}".format(_first_items(unexpected)))
+        raise ValueError(
+            "{} and the input samples have different mutation contexts ({}). Samples and "
+            "signatures must have the same mutation contexts.".format(subject, "; ".join(parts))
+        )
+    aligned = signatures.copy()
+    aligned.index = labels
+    aligned = aligned.loc[contexts]
+    aligned.index.name = signatures.index.name
+    return aligned
+
+
 _NAMED_CONTEXTS = {78: "DBS78", 83: "ID83", 48: "CNV48", 32: "SV32"}
 
 
@@ -436,6 +476,11 @@ def signature_decomposition(
             raise ValueError(
                 "Wrong format of signature database for decompose_fit, Please pass a text file of signatures in the format of COSMIC sig database"
             ) from e
+        # match the database rows to the de novo signature contexts by label
+        if originalProcessAvg is not None:
+            sigDatabase = align_signatures_to_contexts(
+                sigDatabase, originalProcessAvg.iloc[:, 0], "signature_database", "signature_database"
+            )
 
     sig_exclusion_list = [m_for_subgroups + items for items in sig_exclusion_list]
     lognote.write(
