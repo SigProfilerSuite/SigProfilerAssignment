@@ -266,6 +266,14 @@ class TestInputErrors:
             _run(Analyze.decompose_fit, tmp_path / "out", samples=samples, signatures=db,
                  collapse_to_SBS96=False)
 
+    def test_decompose_signatures_with_other_row_count_than_samples_raises_value_error(self, inputs, tmp_path):
+        # audit SPA-2026-11 #2: de novo signatures are aligned to the sample contexts by position
+        denovo = _dummy_denovo_signatures()
+        path = tmp_path / "denovo95.txt"
+        denovo.drop(denovo.index[10]).to_csv(path, sep="\t")
+        with pytest.raises(ValueError, match="The matrix passed in 'signatures' has 95 rows but the samples have 96"):
+            _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=str(path))
+
     def test_same_custom_context_with_collapse_raises_value_error(self, tmp_path):
         # current behaviour for non-96 samples and database of the same context with the default
         # collapse_to_SBS96=True; to be revisited with the planned collapse change

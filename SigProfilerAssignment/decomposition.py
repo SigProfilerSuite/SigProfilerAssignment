@@ -790,6 +790,14 @@ def spa_analyze(
                 "as the samples (e.g. for SBS4608), or check the input matrix for missing or "
                 "extra rows.".format(genomes.shape[0])
             )
+        # the de novo signatures are aligned to the sample contexts below
+        if processAvg.shape[0] != genomes.shape[0]:
+            raise ValueError(
+                "The matrix passed in 'signatures' has {} rows but the samples have {}. "
+                "Samples and signatures must have the same mutation contexts.".format(
+                    processAvg.shape[0], genomes.shape[0]
+                )
+            )
 
         if devopts == None:
             listOfSignatures = processAvg.columns
