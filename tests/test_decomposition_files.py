@@ -418,6 +418,40 @@ class TestSignatureRowAlignment:
             _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=str(path))
 
 
+# ─── parameters reaching the decomposition stage of decompose_fit ───────────────
+
+@pytest.fixture
+def decomposition_calls(monkeypatch):
+    """Record the add/remove settings that the decomposition stage (signature_decomposition)
+    passes to add_remove_signatures; the call itself still runs."""
+    import inspect
+    from SigProfilerAssignment import single_sample as ss
+    calls = []
+    original = ss.add_remove_signatures
+
+    def spy(*args, **kwargs):
+        if inspect.stack()[1].function == "signature_decomposition":
+            calls.append({k: kwargs.get(k) for k in ("add_penalty", "remove_penalty", "connected_sigs")})
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(ss, "add_remove_signatures", spy)
+    return calls
+
+
+class TestDecompositionParameters:
+    def test_defaults_reach_the_decomposition(self, decomposition_calls, inputs, tmp_path):
+        _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=inputs["denovo_path"])
+        assert decomposition_calls
+        assert all(c["add_penalty"] == 0.05 and c["remove_penalty"] == 0.01 for c in decomposition_calls)
+
+    def test_user_penalties_reach_the_decomposition(self, decomposition_calls, inputs, tmp_path):
+        # audit SPA-2026-11 #12: the decomposition used fixed 0.05 / 0.01
+        _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=inputs["denovo_path"],
+             nnls_add_penalty=0.2, nnls_remove_penalty=0.1)
+        assert decomposition_calls
+        assert all(c["add_penalty"] == 0.2 and c["remove_penalty"] == 0.1 for c in decomposition_calls)
+
+
 # ─── input errors ──────────────────────────────────────────────
 
 class TestInputErrors:
