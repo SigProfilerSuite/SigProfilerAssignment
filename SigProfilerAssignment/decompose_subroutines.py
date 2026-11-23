@@ -64,6 +64,13 @@ def collapse_to_sbs96(matrix):
             )
         keys.append("{}[{}]{}".format(match.group(1), match.group(2), match.group(3)))
     collapsed = matrix.groupby(keys).sum()
+    unexpected = [key for key in collapsed.index if key not in set(SBS96_CONTEXTS)]
+    if unexpected:
+        raise ValueError(
+            "Collapsing to SBS96 gave contexts that are not standard SBS96 contexts "
+            "(e.g. '{}'). Write substitutions from the pyrimidine base (C>A, C>G, C>T, "
+            "T>A, T>C, T>G), as in COSMIC.".format(unexpected[0])
+        )
     if set(collapsed.index) != set(SBS96_CONTEXTS):
         raise ValueError(
             "Collapsing to SBS96 gave {} trinucleotide contexts instead of 96; the input does "

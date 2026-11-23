@@ -195,6 +195,19 @@ class TestCollapseToSbs96:
         with pytest.raises(ValueError, match="DBS_AC>CA"):
             collapse_to_sbs96(matrix)
 
+    def test_purine_centred_contexts_raise_value_error(self):
+        # same mutations written from the purine strand: A[C>A]G becomes C[G>T]T
+        comp = str.maketrans("ACGT", "TGCA")
+        labels = []
+        for lab in _context("288"):
+            strand, ctx = lab.split(":")
+            labels.append("%s:%s[%s>%s]%s" % (strand, ctx[6].translate(comp), ctx[2].translate(comp),
+                                               ctx[4].translate(comp), ctx[0].translate(comp)))
+        matrix = pd.DataFrame({"S1": np.ones(len(labels))}, index=labels)
+        with pytest.raises(ValueError, match=r"not standard SBS96 contexts \(e\.g\. '.\[[AG]>.\].'\)\. "
+                                             r"Write substitutions from the pyrimidine base"):
+            collapse_to_sbs96(matrix)
+
     def test_incomplete_contexts_raise_value_error(self):
         # drop every strand variant of one trinucleotide, so only 95 contexts remain
         labels = [lab for lab in _context("288") if not lab.endswith("T[T>G]T")]
