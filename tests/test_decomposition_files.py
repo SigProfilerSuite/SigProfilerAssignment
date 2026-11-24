@@ -145,6 +145,12 @@ class TestCosmicFit:
         assert np.isfinite(values.to_numpy()).all()
         assert np.allclose(values.sum(axis=1), 1.0)
 
+    def test_does_not_change_the_global_random_state(self, inputs, tmp_path):
+        # the assignment is deterministic and must not consume numbers from numpy's global RNG
+        before = np.random.get_state()[1].copy()
+        _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"])
+        assert np.array_equal(np.random.get_state()[1], before)
+
     def test_dataframe_input_matches_file_input(self, cosmic_run, inputs, tmp_path):
         out = _run(Analyze.cosmic_fit, tmp_path / "df", samples=inputs["samples"])
         from_df = _activities(out, "Assignment_Solution", "Assignment_Solution")

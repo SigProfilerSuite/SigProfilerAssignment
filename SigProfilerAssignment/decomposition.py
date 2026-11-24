@@ -642,7 +642,7 @@ def spa_analyze(
         # create the folder for the final solution/ De Novo Solution
         exposureAvg_dummy = (
             pd.DataFrame(
-                np.random.rand(processAvg.shape[1], genomes.shape[1]),
+                np.ones((processAvg.shape[1], genomes.shape[1])),  # only the non-zero pattern is used
                 index=listOfSignatures,
                 columns=colnames.to_list(),
             )
@@ -694,7 +694,7 @@ def spa_analyze(
             background_sigs = []
         exposureAvg_dummy = (
             pd.DataFrame(
-                np.random.rand(processAvg.shape[1], genomes.shape[1]),
+                np.ones((processAvg.shape[1], genomes.shape[1])),  # only the non-zero pattern is used
                 index=allsigids,
                 columns=colnames.to_list(),
             )
@@ -885,7 +885,7 @@ def spa_analyze(
 
         exposureAvg_dummy = (
             pd.DataFrame(
-                np.random.rand(processAvg.shape[1], genomes.shape[1]),
+                np.ones((processAvg.shape[1], genomes.shape[1])),  # only the non-zero pattern is used
                 index=listOfSignatures,
                 columns=colnames.to_list(),
             )
@@ -1131,7 +1131,7 @@ def spa_analyze(
             background_sigs = []
         exposureAvg_dummy = (
             pd.DataFrame(
-                np.random.rand(processAvg.shape[1], genomes.shape[1]),
+                np.ones((processAvg.shape[1], genomes.shape[1])),  # only the non-zero pattern is used
                 index=allsigids,
                 columns=colnames.to_list(),
             )

@@ -169,6 +169,13 @@ class TestFitSignatures:
         exposures, _ = fit_signatures(W, np.round(W @ np.array([123.0, 456.0])))
         assert np.array_equal(exposures, np.round(exposures))
 
+    def test_does_not_change_the_global_random_state(self):
+        # the NNLS fit is deterministic and must not consume numbers from numpy's global RNG
+        W, _ = _cosmic(["SBS1", "SBS5", "SBS13"])
+        before = np.random.get_state()[1].copy()
+        fit_signatures(W, np.round(W @ np.array([300.0, 700.0, 50.0])))
+        assert np.array_equal(np.random.get_state()[1], before)
+
     def test_exact_reconstruction_has_zero_l2_error(self):
         W, _ = _cosmic(["SBS1", "SBS5"])
         _, error = fit_signatures(W, W @ np.array([100.0, 200.0]))

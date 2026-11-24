@@ -126,7 +126,7 @@ def fit_signatures(W, genome, metric="l2"):
     maxmutation = round(np.sum(genome))
 
     # initialize the guess
-    x0 = np.random.rand(W.shape[1], 1) * maxmutation
+    x0 = np.ones((W.shape[1], 1)) * maxmutation
     x0 = x0 / np.sum(x0) * maxmutation
 
     # the optimization step
@@ -184,7 +184,7 @@ def fit_signatures_pool(total_genome, W, index, metric="l2"):
     maxmutation = round(np.sum(genome))
 
     # initialize the guess
-    x0 = np.random.rand(W.shape[1], 1) * maxmutation
+    x0 = np.ones((W.shape[1], 1)) * maxmutation
     x0 = x0 / np.sum(x0) * maxmutation
 
     # the optimization step
@@ -278,7 +278,7 @@ def add_signatures(
 
         # print (W1.shape)
         # initialize the guess
-        x0 = np.random.rand(W1.shape[1], 1) * maxmutation
+        x0 = np.ones((W1.shape[1], 1)) * maxmutation
         x0 = x0 / np.sum(x0) * maxmutation
 
         # set the bounds and constraints
@@ -348,7 +348,7 @@ def add_signatures(
                 W1 = W[:, loop_liststed_idx]
                 # print (W1.shape)
                 # initialize the guess
-                x0 = np.random.rand(W1.shape[1], 1) * maxmutation
+                x0 = np.ones((W1.shape[1], 1)) * maxmutation
                 x0 = x0 / np.sum(x0) * maxmutation
 
                 # set the bounds and constraints
@@ -579,7 +579,7 @@ def remove_all_single_signatures(
             W1 = Winit[:, loopSelection]
 
             # initialize the guess
-            x0 = np.random.rand(l - 1, 1) * maxmutation
+            x0 = np.ones((l - 1, 1)) * maxmutation
             x0 = x0 / np.sum(x0) * maxmutation
 
             # set the bounds and constraints
@@ -762,7 +762,7 @@ def remove_all_single_signatures_pool(indices, W, exposures, totoalgenomes):
             W1 = Winit[:, loopSelection]
 
             # initialize the guess
-            x0 = np.random.rand(l - 1, 1) * maxmutation
+            x0 = np.ones((l - 1, 1)) * maxmutation
             x0 = x0 / np.sum(x0) * maxmutation
 
             # set the bounds and constraints
