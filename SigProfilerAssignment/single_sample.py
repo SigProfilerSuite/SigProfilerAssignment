@@ -103,6 +103,11 @@ def get_changed_background_sig_idx(exposures, background_sigs):
     return background_sigs
 
 
+def same_active_signatures(a, b):
+    """True when both exposure vectors have exactly the same active (non-zero) signatures."""
+    return np.array_equal(np.nonzero(a)[0], np.nonzero(b)[0])
+
+
 def roundConserveSum(x):
 
     # Total to be conserved
@@ -947,12 +952,7 @@ def add_remove_signatures(
                 print(np.nonzero(remove_exposures)[0])
                 print(remove_distance)
             # check if there is any change between the add and remove signatures and assign the distance and exposure accoridingly
-            if (
-                np.nonzero(add_exposures)[0].all()
-                == np.nonzero(remove_exposures)[0].all()
-            ) and np.nonzero(add_exposures)[0].shape == np.nonzero(remove_exposures)[
-                0
-            ].shape:
+            if same_active_signatures(add_exposures, remove_exposures):
                 distance = add_distance
                 exposures = add_exposures
             else:

@@ -20,6 +20,7 @@ from SigProfilerAssignment.single_sample import (
     parameterized_objective2_custom,
     remove_all_single_signatures,
     roundConserveSum,
+    same_active_signatures,
 )
 
 REF_SBS96 = os.path.join(
@@ -148,6 +149,20 @@ class TestAddConnectedSigs:
     def test_empty_background(self):
         allsigids = ["SBS1", "SBS2"]
         assert add_connected_sigs([], allsigids) == []
+
+
+# ─── same_active_signatures ──────────────────────────────────────────────
+
+class TestSameActiveSignatures:
+    def test_different_sets_of_the_same_size_are_different(self):
+        # the old check compared np.nonzero(a)[0].all() == np.nonzero(b)[0].all(), i.e. two booleans
+        assert not same_active_signatures(np.array([0, 5, 7, 0]), np.array([0, 0, 7, 3]))
+
+    def test_same_active_set_with_other_values_is_the_same(self):
+        assert same_active_signatures(np.array([0, 5, 7]), np.array([0, 2, 9]))
+
+    def test_different_sizes_are_different(self):
+        assert not same_active_signatures(np.array([1, 5, 7]), np.array([0, 5, 7]))
 
 
 # ─── fit_signatures ──────────────────────────────────────────────
