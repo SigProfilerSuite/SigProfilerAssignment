@@ -1910,7 +1910,9 @@ def probabilities(W, H, index, allsigids, allcolnames):
     result = 0
     for i in range(H.shape[1]):  # here H.shape is the number of sample
         M = genomes[:, i][np.newaxis]
-        probs = W * H[:, i] / M.T
+        # contexts with no reconstructed mass (0/0) get probability 0 instead of NaN
+        contribution = W * H[:, i]
+        probs = np.divide(contribution, M.T, out=np.zeros_like(contribution, dtype=float), where=M.T > 0)
         probs = pd.DataFrame(probs)
         probs.columns = sigs
         col1 = [cols[i]] * len(rows)

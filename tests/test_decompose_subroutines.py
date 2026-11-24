@@ -368,3 +368,12 @@ class TestProbabilities:
     def test_signature_without_activity_gets_zero(self):
         probs = self._probs()
         assert (probs.loc[probs["Sample Names"] == "S2", "sigA"] == 0).all()
+
+    def test_context_without_reconstructed_mass_gets_zeros(self):
+        # c1 has weight only in sigA, which has no activity in S2: 0/0 used to give NaN
+        W = np.array([[0.5, 0.0], [0.3, 0.2], [0.2, 0.8]])
+        H = np.array([[10.0, 0.0], [30.0, 5.0]])
+        probs = probabilities(W, H, ["c1", "c2", "c3"], ["sigA", "sigB"], ["S1", "S2"])
+        row = probs[(probs["Sample Names"] == "S2") & (probs["MutationType"] == "c1")]
+        assert row[["sigA", "sigB"]].to_numpy().tolist() == [[0.0, 0.0]]
+        assert np.isfinite(probs[["sigA", "sigB"]].to_numpy()).all()
