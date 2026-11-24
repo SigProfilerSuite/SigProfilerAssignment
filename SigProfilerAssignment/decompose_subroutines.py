@@ -236,6 +236,52 @@ def collapse_not_applicable_message(n_contexts):
     )
 
 
+COSMIC_GENOME_BUILDS = ["GRCh37", "GRCh38", "mm9", "mm10", "mm39", "rn6", "rn7"]
+
+# non-SBS contexts: (signature type, first COSMIC version that has them, how it is written in messages)
+_COSMIC_MIN_VERSION = {78: ("DBS", 3, "3.0"), 83: ("ID", 3, "3.0"), 48: ("CN", 3.3, "3.3"), 32: ("SV", 3.4, "3.4")}
+
+
+def cosmic_reference(n_contexts, genome_build="GRCh37", cosmic_version=3.6, exome=False):
+    """Packaged COSMIC reference used for an input with n_contexts rows.
+
+    Returns (genome_build, cosmic_version, file name) as actually used, after the automatic
+    substitutions (unsupported genome build -> GRCh37, version too old for DBS/ID/CN/SV -> 3.6,
+    ID/CN/SBS288/SBS1536 only in GRCh37, SV only in GRCh38), or None when no COSMIC reference
+    exists for that context.
+    """
+    if genome_build not in COSMIC_GENOME_BUILDS:
+        genome_build = "GRCh37"
+    if n_contexts in _COSMIC_MIN_VERSION and cosmic_version < _COSMIC_MIN_VERSION[n_contexts][1]:
+        cosmic_version = 3.6
+    exome_suffix = "_exome" if exome else ""
+    if n_contexts == 96:
+        kind, suffix = "SBS", exome_suffix
+    elif n_contexts in (288, 1536):
+        kind, suffix, genome_build = "SBS" + str(n_contexts), "", "GRCh37"
+    elif n_contexts == 78:
+        kind, suffix = "DBS", exome_suffix
+    elif n_contexts == 83:
+        kind, suffix, genome_build = "ID", "", "GRCh37"
+    elif n_contexts == 48:
+        kind, suffix, genome_build = "CN", "", "GRCh37"
+    elif n_contexts == 32:
+        kind, suffix, genome_build = "SV", "", "GRCh38"
+    else:
+        return None
+    name = "COSMIC_v{}_{}_{}{}.txt".format(cosmic_version, kind, genome_build, suffix)
+    return genome_build, cosmic_version, name
+
+
+def cosmic_reference_message(n_contexts, genome_build="GRCh37", cosmic_version=3.6, exome=False):
+    """Metadata line naming the packaged COSMIC reference used and the requested values."""
+    used_genome, used_version, name = cosmic_reference(n_contexts, genome_build, cosmic_version, exome)
+    return (
+        "Reference signatures: {} (cosmic_version {}, genome_build {}; requested: cosmic_version {}, "
+        "genome_build {}).".format(name, used_version, used_genome, cosmic_version, genome_build)
+    )
+
+
 def getProcessAvg(
     samples,
     genome_build="GRCh37",
@@ -245,167 +291,51 @@ def getProcessAvg(
     exome=False,
 ):
     paths = spa.__path__[0]
+    n_contexts = samples.shape[0]
 
-    if genome_build in ["GRCh37", "GRCh38", "mm9", "mm10", "mm39", "rn6", "rn7"]:
-        genome_build = genome_build
-    else:
+    if genome_build not in COSMIC_GENOME_BUILDS:
         print(
             "The selected genome build is "
             + str(genome_build)
             + ". COSMIC signatures are available only for GRCh37/38, mm9/10/39 and rn6/7 genomes. So, the genome build is reset to GRCh37."
         )
         genome_build = "GRCh37"
-    if samples.shape[0] == 96:
-        if exome == False:
-            sigDatabase = pd.read_csv(
-                paths
-                + "/data/Reference_Signatures/"
-                + genome_build
-                + "/COSMIC_v"
-                + str(cosmic_version)
-                + "_SBS_"
-                + genome_build
-                + ".txt",
-                sep="\t",
-                index_col=0,
-            )
-        else:
-            sigDatabase = pd.read_csv(
-                paths
-                + "/data/Reference_Signatures/"
-                + genome_build
-                + "/COSMIC_v"
-                + str(cosmic_version)
-                + "_SBS_"
-                + genome_build
-                + "_exome.txt",
-                sep="\t",
-                index_col=0,
-            )
-        signames = sigDatabase.columns
 
-    elif samples.shape[0] in (288, 1536):
-        reference = (
-            paths
-            + "/data/Reference_Signatures/GRCh37/COSMIC_v"
-            + str(cosmic_version)
-            + "_SBS"
-            + str(samples.shape[0])
-            + "_GRCh37.txt"
-        )
-        if not os.path.isfile(reference):
-            raise ValueError(
-                "No COSMIC reference signatures are available for SBS{} (cosmic_version {}). "
-                "SBS288 and SBS1536 inputs need a user-supplied signature_database; "
-                "alternatively set collapse_to_SBS96=True to use the SBS96 COSMIC "
-                "signatures.".format(samples.shape[0], cosmic_version)
-            )
-        sigDatabase = pd.read_csv(reference, sep="\t", index_col=0)
-        signames = sigDatabase.columns
-
-    elif samples.shape[0] == 78:
-        if cosmic_version < 3:
-            print(
-                f"The selected cosmic version is {cosmic_version}. However, DBS signatures are "
-                "available only for version 3.0 and newer. Therefore, the cosmic version has "
-                "been reset to 3.6."
-            )
-            cosmic_version = 3.6
-        if exome == False:
-            sigDatabase = pd.read_csv(
-                paths
-                + "/data/Reference_Signatures/"
-                + genome_build
-                + "/COSMIC_v"
-                + str(cosmic_version)
-                + "_DBS_"
-                + genome_build
-                + ".txt",
-                sep="\t",
-                index_col=0,
-            )
-        else:
-            sigDatabase = pd.read_csv(
-                paths
-                + "/data/Reference_Signatures/"
-                + genome_build
-                + "/COSMIC_v"
-                + str(cosmic_version)
-                + "_DBS_"
-                + genome_build
-                + "_exome.txt",
-                sep="\t",
-                index_col=0,
-            )
-        signames = sigDatabase.columns
-        connected_sigs = False
-
-    elif samples.shape[0] == 83:
-        if cosmic_version < 3:
-            print(
-                f"The selected cosmic version is {cosmic_version}. However, ID signatures are "
-                "available only for version 3.0 and newer. Therefore, the cosmic version has "
-                "been reset to 3.6."
-            )
-            cosmic_version = 3.6
-        sigDatabase = pd.read_csv(
-            paths
-            + "/data/Reference_Signatures/GRCh37/COSMIC_v"
-            + str(cosmic_version)
-            + "_ID_GRCh37.txt",
-            sep="\t",
-            index_col=0,
-        )
-        signames = sigDatabase.columns
-        connected_sigs = False
-        # indel signatures have no re-normalization so "GRCh37" is used
-        genome_build = "GRCh37"
-
-    elif samples.shape[0] == 48:
-        if cosmic_version < 3.3:
-            print(
-                f"The selected cosmic version is {cosmic_version}. However, CN signatures are "
-                "available only for version 3.3 and newer. Therefore, the cosmic version has "
-                "been reset to 3.6."
-            )
-            cosmic_version = 3.6
-        sigDatabase = pd.read_csv(
-            paths
-            + "/data/Reference_Signatures/GRCh37/COSMIC_v"
-            + str(cosmic_version)
-            + "_CN_GRCh37.txt",
-            sep="\t",
-            index_col=0,
-        )
-        signames = sigDatabase.columns
-        connected_sigs = False
-
-    elif samples.shape[0] == 32:
-        if cosmic_version < 3.4:
-            print(
-                f"The selected cosmic version is {cosmic_version}. However, SV signatures are "
-                "available only for version 3.4 and newer. Therefore, the cosmic version has "
-                "been reset to 3.6."
-            )
-            cosmic_version = 3.6
-        sigDatabase = pd.read_csv(
-            paths
-            + "/data/Reference_Signatures/GRCh38/COSMIC_v"
-            + str(cosmic_version)
-            + "_SV_GRCh38.txt",
-            sep="\t",
-            index_col=0,
-        )
-        signames = sigDatabase.columns
-        connected_sigs = False
-    else:
+    reference = cosmic_reference(n_contexts, genome_build, cosmic_version, exome)
+    if reference is None:
         # never use the input itself as the reference
         raise ValueError(
             "Input samples have {} rows (mutation contexts) and no COSMIC reference exists "
             "for that context. Provide a signature_database with the same mutation contexts "
             "as the samples (e.g. for SBS4608), or check the input matrix for missing or "
-            "extra rows.".format(samples.shape[0])
+            "extra rows.".format(n_contexts)
         )
+    reference_genome, reference_version, reference_name = reference
+
+    if n_contexts in _COSMIC_MIN_VERSION and reference_version != cosmic_version:
+        kind, _, first_version = _COSMIC_MIN_VERSION[n_contexts]
+        print(
+            f"The selected cosmic version is {cosmic_version}. However, {kind} signatures are "
+            f"available only for version {first_version} and newer. Therefore, the cosmic version has "
+            "been reset to 3.6."
+        )
+
+    reference_path = os.path.join(paths, "data", "Reference_Signatures", reference_genome, reference_name)
+    if n_contexts in (288, 1536) and not os.path.isfile(reference_path):
+        raise ValueError(
+            "No COSMIC reference signatures are available for SBS{} (cosmic_version {}). "
+            "SBS288 and SBS1536 inputs need a user-supplied signature_database; "
+            "alternatively set collapse_to_SBS96=True to use the SBS96 COSMIC "
+            "signatures.".format(n_contexts, cosmic_version)
+        )
+    sigDatabase = pd.read_csv(reference_path, sep="\t", index_col=0)
+    signames = sigDatabase.columns
+
+    if n_contexts in _COSMIC_MIN_VERSION:
+        connected_sigs = False
+    if n_contexts == 83:
+        # indel signatures have no re-normalization so "GRCh37" is used
+        genome_build = "GRCh37"
 
     return sigDatabase, signames, connected_sigs, genome_build
 
@@ -535,6 +465,7 @@ def signature_decomposition(
     lognote.write("Genome Build: {}\n".format(genome_build))
 
     if signature_database == None:
+        requested_genome_build = genome_build
         sigDatabase, signames, connected_sigs, genome_build = getProcessAvg(
             signatures,
             genome_build=genome_build,
@@ -542,6 +473,13 @@ def signature_decomposition(
             connected_sigs=connected_sigs,
             exome=exome,
         )
+        metadata_path = os.path.join(os.path.dirname(directory), "JOB_METADATA_SPA.txt")
+        if os.path.exists(metadata_path):
+            with open(metadata_path, "a") as sysdata:
+                sysdata.write(
+                    "\n "
+                    + cosmic_reference_message(signatures.shape[0], requested_genome_build, cosmic_version, exome)
+                )
         # processAvg = processAvg.set_index('Type').rename_axis('MutationType')
     else:
         if not os.path.isfile(signature_database):

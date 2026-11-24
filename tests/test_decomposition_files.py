@@ -334,6 +334,34 @@ def _dummy_dbs_inputs(tmp_path):
     return str(samples_path), str(denovo_path), mixtures
 
 
+class TestReferenceRecorded:
+    # the metadata records the packaged COSMIC file actually used, with the effective and requested values
+    def _metadata(self, out):
+        return open(os.path.join(out, "JOB_METADATA_SPA.txt")).read()
+
+    def test_dbs_version_reset_is_recorded(self, tmp_path):
+        samples, _, _ = _dummy_dbs_inputs(tmp_path)
+        out = _run(Analyze.cosmic_fit, tmp_path / "out", samples=samples, cosmic_version=2)
+        assert ("Reference signatures: COSMIC_v3.6_DBS_GRCh37.txt (cosmic_version 3.6, genome_build GRCh37; "
+                "requested: cosmic_version 2, genome_build GRCh37).") in self._metadata(out)
+
+    def test_genome_build_reset_is_recorded(self, inputs, tmp_path):
+        out = _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"], genome_build="hg19")
+        assert ("Reference signatures: COSMIC_v3.6_SBS_GRCh37.txt (cosmic_version 3.6, genome_build GRCh37; "
+                "requested: cosmic_version 3.6, genome_build hg19).") in self._metadata(out)
+
+    def test_decompose_fit_records_the_reference(self, inputs, tmp_path):
+        out = _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"],
+                   signatures=inputs["denovo_path"], genome_build="GRCh38", cosmic_version=3.4)
+        assert ("Reference signatures: COSMIC_v3.4_SBS_GRCh38.txt (cosmic_version 3.4, genome_build GRCh38; "
+                "requested: cosmic_version 3.4, genome_build GRCh38).") in self._metadata(out)
+
+    def test_custom_database_records_no_cosmic_reference(self, inputs, tmp_path):
+        db = tmp_path / "db3.txt"
+        _cosmic()[["SBS1", "SBS5", "SBS13"]].to_csv(db, sep="\t")
+        out = _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"], signature_database=str(db))
+        assert "Reference signatures: COSMIC" not in self._metadata(out)
+
 class TestCollapseNotApplicable:
     MESSAGE = ("collapse_to_SBS96=True only applies to SBS inputs with extended contexts "
                "(e.g. SBS288, SBS1536, SBS4608); ")

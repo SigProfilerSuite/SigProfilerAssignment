@@ -1061,6 +1061,11 @@ def spa_analyze(
                 cosmic_version=cosmic_version,
                 exome=exome,
             )[0]
+            if make_metadata:
+                with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
+                    sysdata.write(
+                        "\n " + sub.cosmic_reference_message(genomes.shape[0], genome_build, cosmic_version, exome)
+                    )
         else:
             if not os.path.isfile(signature_database):
                 raise FileNotFoundError(

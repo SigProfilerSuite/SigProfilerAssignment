@@ -2,9 +2,13 @@
 No genome reference required.
 Run with: pytest tests/test_decompose_subroutines.py -v
 """
+import os
+
 import numpy as np
 import pandas as pd
 import pytest
+
+import SigProfilerAssignment as spa
 
 from SigProfilerAssignment.decompose_subroutines import (
     add_remove_failure_message,
@@ -13,6 +17,8 @@ from SigProfilerAssignment.decompose_subroutines import (
     check_signature_database,
     collapse_not_applicable_message,
     collapse_to_sbs96,
+    cosmic_reference,
+    cosmic_reference_message,
     cor_sim,
     cos_sim,
     get_indeces,
@@ -359,6 +365,42 @@ class TestReportAddRemoveFailure:
         layer = self._layer(tmp_path)
         report_add_remove_failure("warning text", str(layer), "Assignment_Solution")
         assert not (tmp_path / "JOB_METADATA_SPA.txt").exists()
+
+
+# ─── packaged COSMIC reference actually used ─────────────────────────────────
+
+class TestCosmicReference:
+    @pytest.mark.parametrize("args,expected", [
+        ((96, "GRCh38", 3.4, False), ("GRCh38", 3.4, "COSMIC_v3.4_SBS_GRCh38.txt")),
+        ((96, "GRCh37", 3.6, True), ("GRCh37", 3.6, "COSMIC_v3.6_SBS_GRCh37_exome.txt")),
+        ((96, "GRCh37", 3, False), ("GRCh37", 3, "COSMIC_v3_SBS_GRCh37.txt")),
+        # unsupported genome build: reset to GRCh37
+        ((96, "hg19", 3.6, False), ("GRCh37", 3.6, "COSMIC_v3.6_SBS_GRCh37.txt")),
+        # DBS/ID need version 3.0 or newer, CN 3.3, SV 3.4: reset to 3.6
+        ((78, "GRCh38", 2, False), ("GRCh38", 3.6, "COSMIC_v3.6_DBS_GRCh38.txt")),
+        ((78, "GRCh37", 3.4, True), ("GRCh37", 3.4, "COSMIC_v3.4_DBS_GRCh37_exome.txt")),
+        ((83, "GRCh38", 2, False), ("GRCh37", 3.6, "COSMIC_v3.6_ID_GRCh37.txt")),
+        ((48, "GRCh38", 3.2, False), ("GRCh37", 3.6, "COSMIC_v3.6_CN_GRCh37.txt")),
+        ((32, "GRCh37", 3.3, False), ("GRCh38", 3.6, "COSMIC_v3.6_SV_GRCh38.txt")),
+        # SBS288/SBS1536 references are GRCh37 only
+        ((288, "GRCh38", 3.2, False), ("GRCh37", 3.2, "COSMIC_v3.2_SBS288_GRCh37.txt")),
+    ])
+    def test_effective_genome_version_and_file(self, args, expected):
+        assert cosmic_reference(*args) == expected
+
+    @pytest.mark.parametrize("args", [(96, "GRCh38", 3.4, False), (78, "GRCh38", 2, False), (83, "GRCh38", 2, False),
+                                      (48, "GRCh38", 3.2, False), (32, "GRCh37", 3.3, False), (96, "mm10", 3.6, True)])
+    def test_reference_file_is_packaged(self, args):
+        genome, _, name = cosmic_reference(*args)
+        assert os.path.isfile(os.path.join(os.path.dirname(spa.__file__), "data", "Reference_Signatures", genome, name))
+
+    def test_unknown_context_has_no_reference(self):
+        assert cosmic_reference(95, "GRCh37", 3.6, False) is None
+
+    def test_message_gives_effective_and_requested_values(self):
+        assert cosmic_reference_message(78, "GRCh38", 2, False) == (
+            "Reference signatures: COSMIC_v3.6_DBS_GRCh38.txt (cosmic_version 3.6, genome_build GRCh38; "
+            "requested: cosmic_version 2, genome_build GRCh38).")
 
 
 # ─── getProcessAvg ──────────────────────────────────────────────
