@@ -245,6 +245,8 @@ def add_signatures(
     check_rule_penalty=1.0,
     verbose=False,
 ):
+    if solver != "nnls":
+        raise ValueError("Unsupported solver '{}': only 'nnls' is available.".format(solver))
     # This function takes an array of signature and a single genome as input, returns a dictionray of cosine similarity, exposures and presence
     # of signatures according to the indices of the original signature array
 
@@ -281,27 +283,7 @@ def add_signatures(
 
         W1 = W[:, loop_liststed_idx]
 
-        # print (W1.shape)
-        # initialize the guess
-        x0 = np.ones((W1.shape[1], 1)) * maxmutation
-        x0 = x0 / np.sum(x0) * maxmutation
-
-        # set the bounds and constraints
-        bnds = create_bounds([], genome, W1.shape[1])
-        cons1 = {"type": "eq", "fun": constraints1, "args": [genome]}
-
         # the optimization step
-        if solver == "slsqp":
-            sol = minimize(
-                parameterized_objective2_custom,
-                x0,
-                args=(W1, genome),
-                bounds=bnds,
-                constraints=cons1,
-                tol=1e-30,
-            )
-            newExposure = list(sol.x)
-            est_genome = np.dot(W1, np.array(newExposure))
         if solver == "nnls":
             ### using NNLS algorithm
             reg = nnls(W1, genome[:, 0])
@@ -351,38 +333,10 @@ def add_signatures(
                 loop_liststed_idx.sort()
                 # print(loop_liststed_idx)
                 W1 = W[:, loop_liststed_idx]
-                # print (W1.shape)
-                # initialize the guess
-                x0 = np.ones((W1.shape[1], 1)) * maxmutation
-                x0 = x0 / np.sum(x0) * maxmutation
-
-                # set the bounds and constraints
-                bnds = create_bounds([], genome, W1.shape[1])
-                cons1 = {"type": "eq", "fun": constraints1, "args": [genome]}
             # for the first time addintion
             else:
                 W1 = W[:, sig][:, np.newaxis]
-                # print (W1.shape)
-                # initialize the guess
-                x0 = np.ones((1, 1)) * maxmutation
 
-                # set the bounds and constraints
-                bnds = create_bounds([], genome, 1)
-                cons1 = {"type": "eq", "fun": constraints1, "args": [genome]}
-
-            if solver == "slsqp":
-                # the optimization step
-                sol = minimize(
-                    parameterized_objective2_custom,
-                    x0,
-                    args=(W1, genome),
-                    bounds=bnds,
-                    constraints=cons1,
-                    tol=1e-30,
-                )
-                newExposure = list(sol.x)
-                # compute the estimated genome
-                est_genome = np.dot(W1, np.array(newExposure))
             if solver == "nnls":
                 reg = nnls(W1, genome[:, 0])
                 weights = reg[0]
@@ -493,6 +447,8 @@ def remove_all_single_signatures(
     background_sigs=[],
     verbose=False,
 ):
+    if solver != "nnls":
+        raise ValueError("Unsupported solver '{}': only 'nnls' is available.".format(solver))
     # make the empty list of the successfull combinations
     signature_ids = sub.make_letter_ids(idlenth=W.shape[1], mtype="Signature ")
 
@@ -583,30 +539,7 @@ def remove_all_single_signatures(
 
             W1 = Winit[:, loopSelection]
 
-            # initialize the guess
-            x0 = np.ones((l - 1, 1)) * maxmutation
-            x0 = x0 / np.sum(x0) * maxmutation
-
-            # set the bounds and constraints
-            bnds = create_bounds([], genomes, W1.shape[1])
-            cons1 = {"type": "eq", "fun": constraints1, "args": [genomes]}
-
             # the optimization step
-            if solver == "slsqp":
-                sol = minimize(
-                    parameterized_objective2_custom,
-                    x0,
-                    args=(W1, genomes),
-                    bounds=bnds,
-                    constraints=cons1,
-                    tol=1e-15,
-                )
-
-                # print (sol.success)
-                # print (sol.x)
-
-                # convert the newExposure vector into list type structure
-                newExposure = list(sol.x)
             if solver == "nnls":
                 ### using NNLS algorithm
                 reg = nnls(W1, genomes)

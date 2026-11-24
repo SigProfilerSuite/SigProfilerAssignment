@@ -13,6 +13,7 @@ import SigProfilerAssignment as spa
 from SigProfilerAssignment.single_sample import (
     add_connected_sigs,
     add_remove_signatures,
+    add_signatures,
     constraints1,
     create_bounds,
     fit_signatures,
@@ -219,6 +220,23 @@ class TestRemoveAllSingleSignatures:
         H = np.array([12.0, 13.0, 899.0])
         exposures, _, _ = remove_all_single_signatures(W, H, W @ H, cutoff=0.01, background_sigs=[1])
         assert exposures[1] != 0
+
+
+# ─── unsupported solvers ──────────────────────────────────────────────
+
+class TestUnsupportedSolver:
+    # the old SLSQP branch was never used by the pipeline and failed when called
+    def test_remove_all_single_signatures_rejects_slsqp(self):
+        W, _ = _cosmic(["SBS1", "SBS5", "SBS13"])
+        H = np.array([300.0, 600.0, 100.0])
+        with pytest.raises(ValueError, match=r"^Unsupported solver 'slsqp': only 'nnls' is available\.$"):
+            remove_all_single_signatures(W, H, W @ H, solver="slsqp", cutoff=0.01)
+
+    def test_add_signatures_rejects_slsqp(self):
+        W, _ = _cosmic(["SBS1", "SBS5", "SBS13"])
+        genome = (W @ np.array([300.0, 600.0, 100.0]))[:, np.newaxis]
+        with pytest.raises(ValueError, match=r"^Unsupported solver 'slsqp': only 'nnls' is available\.$"):
+            add_signatures(W, genome, presentSignatures=[0], toBeAdded=[1], solver="slsqp")
 
 
 # ─── add_remove_signatures ──────────────────────────────────────────────
