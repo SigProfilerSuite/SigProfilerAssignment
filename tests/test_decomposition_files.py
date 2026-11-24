@@ -593,6 +593,23 @@ class TestAddRemoveStep:
         assert add_remove_errors == []
         _assert_close(_activities(out, "Assignment_Solution", "Assignment_Solution"), MIXTURES)
 
+    def test_failure_is_reported_per_sample(self, monkeypatch, inputs, tmp_path):
+        from SigProfilerAssignment import single_sample as ss
+
+        def failing_step(*args, **kwargs):
+            raise RuntimeError("injected failure")
+
+        monkeypatch.setattr(ss, "add_remove_signatures", failing_step)
+        out, printed = _run_capture(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"])
+        metadata = open(os.path.join(out, "JOB_METADATA_SPA.txt")).read()
+        for sample in ["S1", "S2", "S3"]:
+            message = (
+                "The add/remove step failed for sample {} (RuntimeError: injected failure); the composition "
+                "from the initial removal step is reported for this sample.".format(sample)
+            )
+            assert message in printed
+            assert message in metadata
+
 
 # ─── parameters reaching the decomposition stage of decompose_fit ───────────────
 

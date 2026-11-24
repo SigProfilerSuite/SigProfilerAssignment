@@ -974,6 +974,26 @@ def signature_decomposition(
     }
 
 
+def add_remove_failure_message(sample, error):
+    """Warning for a sample whose add/remove step raised an exception."""
+    return (
+        "The add/remove step failed for sample {} ({}: {}); the composition from the "
+        "initial removal step is reported for this sample.".format(sample, type(error).__name__, error)
+    )
+
+
+def report_add_remove_failure(message, layer_directory, solution_prefix):
+    """Print the warning and record it in the assignment log and, when present, in JOB_METADATA_SPA.txt."""
+    print(message)
+    log_path = os.path.join(layer_directory, "Solution_Stats", solution_prefix + "_Signature_Assignment_log.txt")
+    with open(log_path, "a") as lognote:
+        lognote.write("\n" + message + "\n")
+    metadata_path = os.path.join(os.path.dirname(layer_directory), "JOB_METADATA_SPA.txt")
+    if os.path.exists(metadata_path):
+        with open(metadata_path, "a") as sysdata:
+            sysdata.write("\n " + message)
+
+
 def process_sample(args):
     # (r, denovo_exposureAvg, attribution, allsigids, background_sigs, processAvg, allgenomes, layer_directory, solution_prefix, verbose, pcawg_rule, initial_remove_penalty, add_penalty, remove_penalty, check_rule_negatives, check_rule_penalty, connected_sigs) = args
     (
@@ -1016,6 +1036,7 @@ def process_sample(args):
     )
 
     sample_exposure = np.array(denovo_exposureAvg.iloc[:, r])
+    add_remove_error = None
 
     init_sig_idx = np.nonzero(sample_exposure)[0]
     init_sigs = denovo_exposureAvg.index[init_sig_idx]
@@ -1195,10 +1216,10 @@ def process_sample(args):
                 )
             )
             lognote.close()
-        except:
-            pass
+        except Exception as e:
+            add_remove_error = e
 
-    return exposureAvg[:, r]
+    return exposureAvg[:, r], add_remove_error
 
 
 def make_final_solution(
@@ -1337,8 +1358,12 @@ def make_final_solution(
 
     # Store the results in exposureAvg
     exposureAvg = np.zeros([processAvg.shape[1], allgenomes.shape[1]])
-    for r, result in enumerate(results):
+    for r, (result, add_remove_error) in enumerate(results):
         exposureAvg[:, r] = result
+        if add_remove_error is not None:
+            report_add_remove_failure(
+                add_remove_failure_message(allcolnames[r], add_remove_error), layer_directory, solution_prefix
+            )
     else:
         # Handle the non-cosmic_sigs case as needed
         pass

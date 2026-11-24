@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from SigProfilerAssignment.decompose_subroutines import (
+    add_remove_failure_message,
     align_signatures_to_contexts,
     check_samples_matrix,
     check_signature_database,
@@ -17,6 +18,7 @@ from SigProfilerAssignment.decompose_subroutines import (
     get_indeces,
     getProcessAvg,
     is_extended_sbs,
+    report_add_remove_failure,
     get_items_from_index,
     make_letter_ids,
     probabilities,
@@ -327,6 +329,36 @@ class TestCollapseNotApplicableMessage:
     def test_unknown_context_gives_row_count(self):
         assert collapse_not_applicable_message(10) == (
             self.PREFIX + "the input has 10 rows (mutation contexts), so it is analysed without collapsing.")
+
+
+# ─── add/remove failure warning ──────────────────────────────────────────────
+
+class TestAddRemoveFailureMessage:
+    def test_names_the_sample_and_the_error(self):
+        assert add_remove_failure_message("S1", UnboundLocalError("x")) == (
+            "The add/remove step failed for sample S1 (UnboundLocalError: x); the composition from the "
+            "initial removal step is reported for this sample.")
+
+
+class TestReportAddRemoveFailure:
+    def _layer(self, tmp_path):
+        layer = tmp_path / "Assignment_Solution"
+        (layer / "Solution_Stats").mkdir(parents=True)
+        return layer
+
+    def test_prints_and_writes_log_and_metadata(self, tmp_path, capsys):
+        layer = self._layer(tmp_path)
+        (tmp_path / "JOB_METADATA_SPA.txt").write_text("header")
+        report_add_remove_failure("warning text", str(layer), "Assignment_Solution")
+        assert "warning text" in capsys.readouterr().out
+        log = layer / "Solution_Stats" / "Assignment_Solution_Signature_Assignment_log.txt"
+        assert "warning text" in log.read_text()
+        assert (tmp_path / "JOB_METADATA_SPA.txt").read_text() == "header\n warning text"
+
+    def test_does_not_create_missing_metadata(self, tmp_path, capsys):
+        layer = self._layer(tmp_path)
+        report_add_remove_failure("warning text", str(layer), "Assignment_Solution")
+        assert not (tmp_path / "JOB_METADATA_SPA.txt").exists()
 
 
 # ─── getProcessAvg ──────────────────────────────────────────────
