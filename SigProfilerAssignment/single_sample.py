@@ -841,8 +841,12 @@ def add_remove_signatures(
         else:
             allsigidsToBeAdded = sigsToBeAdded
 
+        # nothing left to add: still evaluate the current composition (remove step only)
+        if not sigsToBeAdded:
+            sigsToBeAdded, allsigidsToBeAdded = [None], [None]
+
         for i, j in zip(sigsToBeAdded, allsigidsToBeAdded):
-            loop_sig = [i]
+            loop_sig = [] if i is None else [i]
 
             background_sigs = list(set(background_sigs).union(set(always_background)))
             if connected_sigs == True:

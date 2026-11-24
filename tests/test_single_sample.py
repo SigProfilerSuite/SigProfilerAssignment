@@ -263,6 +263,18 @@ class TestAddRemoveSignatures:
         (_, activities, *_), sample, _ = self._run(tmp_path, {"SBS1": 400.0, "SBS18": 900.0})
         assert np.sum(activities) == round(np.sum(sample))
 
+    def test_all_signatures_already_present(self, tmp_path):
+        # every available signature is already in the starting composition, so nothing is left
+        # to add; this used to raise UnboundLocalError ('selected_signatures')
+        W, names = _cosmic(["SBS1", "SBS5", "SBS13"])
+        sample = np.round(W @ np.array([1000.0, 2000.0, 500.0]))
+        _, activities, *_ = add_remove_signatures(
+            W, sample, allsigids=names, background_sigs=[0, 1, 2], permanent_sigs=[0, 1],
+            connected_sigs=False, directory=str(tmp_path / "assignment_log.txt"),
+        )
+        assert np.sum(activities) == round(np.sum(sample))
+        assert {n for n, a in zip(names, activities) if a != 0} == {"SBS1", "SBS5", "SBS13"}
+
     def test_writes_assignment_log(self, tmp_path):
         self._run(tmp_path, {"SBS5": 800.0})
         log = (tmp_path / "assignment_log.txt").read_text()

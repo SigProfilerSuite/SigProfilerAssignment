@@ -559,6 +559,41 @@ class TestInputValidation:
         assert warning in open(os.path.join(out, "JOB_METADATA_SPA.txt")).read()
 
 
+# ─── add/remove step failures ─────────────────────────────────────────────
+
+@pytest.fixture
+def add_remove_errors(monkeypatch):
+    """Record exceptions raised by add_remove_signatures during a run (they are re-raised)."""
+    from SigProfilerAssignment import single_sample as ss
+    errors = []
+    original = ss.add_remove_signatures
+
+    def spy(*args, **kwargs):
+        try:
+            return original(*args, **kwargs)
+        except Exception as e:
+            errors.append(repr(e))
+            raise
+
+    monkeypatch.setattr(ss, "add_remove_signatures", spy)
+    return errors
+
+
+class TestAddRemoveStep:
+    # samples that already use every available signature left nothing to add, and the add/remove
+    # step failed for them; the error was swallowed and the initial composition was reported
+    def test_decompose_fit_samples_using_all_decomposed_signatures(self, add_remove_errors, inputs, tmp_path):
+        _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=inputs["denovo_path"])
+        assert add_remove_errors == []
+
+    def test_cosmic_fit_with_a_small_custom_database(self, add_remove_errors, inputs, tmp_path):
+        db = tmp_path / "db3.txt"
+        _cosmic()[["SBS1", "SBS5", "SBS13"]].to_csv(db, sep="\t")
+        out = _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"], signature_database=str(db))
+        assert add_remove_errors == []
+        _assert_close(_activities(out, "Assignment_Solution", "Assignment_Solution"), MIXTURES)
+
+
 # ─── parameters reaching the decomposition stage of decompose_fit ───────────────
 
 @pytest.fixture
@@ -681,7 +716,7 @@ class TestInputErrors:
 class TestDenovoFit:
     EXPECTED = {
         "S1": {"SBS96A": 2704, "SBS96B": 796},
-        "S2": {"SBS96A": 1682, "SBS96B": 119},
+        "S2": {"SBS96A": 1801},
         "S3": {"SBS96A": 1373, "SBS96B": 1229},
     }
 
