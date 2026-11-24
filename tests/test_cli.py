@@ -142,6 +142,20 @@ if __name__ == "__main__":
     pytest.main()
 
 
+
+class TestVolumeIsForwarded:
+    @pytest.mark.parametrize("dispatch", ["dispatch_cosmic_fit", "dispatch_denovo_fit", "dispatch_decompose_fit"])
+    def test_volume_reaches_spa_analyze(self, captured_call, dispatch):
+        getattr(cli_controller.CliController(), dispatch)(["in.txt", "out_dir", "--volume", "/tmp/spa_volume"])
+        (kw,) = captured_call
+        assert kw["volume"] == "/tmp/spa_volume"
+
+    @pytest.mark.parametrize("dispatch", ["dispatch_cosmic_fit", "dispatch_denovo_fit", "dispatch_decompose_fit"])
+    def test_default_volume_is_none(self, captured_call, dispatch):
+        getattr(cli_controller.CliController(), dispatch)(["in.txt", "out_dir"])
+        (kw,) = captured_call
+        assert kw["volume"] is None
+
 class TestCosmicVersionArgument:
     # the version is used to build the reference file name (e.g. COSMIC_v3_SBS_GRCh37.txt)
     @pytest.mark.parametrize("value,name", [("1", "1"), ("2", "2"), ("3", "3"), ("3.0", "3"),

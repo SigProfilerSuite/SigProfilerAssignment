@@ -206,6 +206,7 @@ class CliController:
             export_probabilities=parsed_args.export_probabilities,
             export_probabilities_per_mutation=parsed_args.export_probabilities_per_mutation,
             add_background_signatures=parsed_args.add_background_signatures,
+            volume=parsed_args.volume,
         )
 
     def dispatch_denovo_fit(self, user_args: List[str]) -> None:
@@ -237,6 +238,7 @@ class CliController:
             export_probabilities=parsed_args.export_probabilities,
             export_probabilities_per_mutation=parsed_args.export_probabilities_per_mutation,
             add_background_signatures=parsed_args.add_background_signatures,
+            volume=parsed_args.volume,
         )
 
     def dispatch_cosmic_fit(self, user_args: List[str]) -> None:
@@ -269,4 +271,5 @@ class CliController:
             export_probabilities_per_mutation=parsed_args.export_probabilities_per_mutation,
             sample_reconstruction_plots=parsed_args.sample_reconstruction_plots,
             add_background_signatures=parsed_args.add_background_signatures,
+            volume=parsed_args.volume,
         )
