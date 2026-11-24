@@ -1,5 +1,7 @@
 import pytest
 import argparse
+import os
+import SigProfilerAssignment
 from SigProfilerAssignment.controllers import cli_controller
 from SigProfilerAssignment.controllers.cli_controller import (
     parse_arguments_common,
@@ -138,3 +140,19 @@ class TestDispatch:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestCosmicVersionArgument:
+    # the version is used to build the reference file name (e.g. COSMIC_v3_SBS_GRCh37.txt)
+    @pytest.mark.parametrize("value,name", [("1", "1"), ("2", "2"), ("3", "3"), ("3.0", "3"),
+                                            ("3.1", "3.1"), ("3.4", "3.4"), ("3.6", "3.6")])
+    def test_version_keeps_the_reference_file_name(self, value, name):
+        args = parse_arguments_common(["in.txt", "out_dir", "--cosmic_version", value], "test")
+        assert str(args.cosmic_version) == name
+        ref = os.path.join(os.path.dirname(SigProfilerAssignment.__file__), "data", "Reference_Signatures",
+                           "GRCh37", "COSMIC_v{}_SBS_GRCh37.txt".format(args.cosmic_version))
+        assert os.path.exists(ref)
+
+    def test_default_version(self):
+        args = parse_arguments_common(["in.txt", "out_dir"], "test")
+        assert str(args.cosmic_version) == "3.6"

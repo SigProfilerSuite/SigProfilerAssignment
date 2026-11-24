@@ -16,6 +16,11 @@ def str2bool(v):
 def str2list(arg):
     return arg.split(",")
 
+def cosmic_version(v):
+    # whole versions stay integers so the reference file name is COSMIC_v3_..., not COSMIC_v3.0_...
+    version = float(v)
+    return int(version) if version.is_integer() else version
+
 def parse_arguments_common(args: List[str], description: str) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=description)
 
@@ -51,7 +56,7 @@ def parse_arguments_common(args: List[str], description: str) -> argparse.Namesp
     )
     parser.add_argument(
         "--cosmic_version",
-        type=float,
+        type=cosmic_version,
         default=3.6,
         help="COSMIC version (default: 3.6). Valid options: {1, 2, 3, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6}.",
     )
