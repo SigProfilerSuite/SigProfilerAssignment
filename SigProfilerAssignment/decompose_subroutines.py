@@ -284,30 +284,23 @@ def getProcessAvg(
             )
         signames = sigDatabase.columns
 
-    elif samples.shape[0] == 288:
-        sigDatabase = pd.read_csv(
+    elif samples.shape[0] in (288, 1536):
+        reference = (
             paths
             + "/data/Reference_Signatures/GRCh37/COSMIC_v"
             + str(cosmic_version)
             + "_SBS"
             + str(samples.shape[0])
-            + "_GRCh37.txt",
-            sep="\t",
-            index_col=0,
+            + "_GRCh37.txt"
         )
-        signames = sigDatabase.columns
-
-    elif samples.shape[0] == 1536:
-        sigDatabase = pd.read_csv(
-            paths
-            + "/data/Reference_Signatures/GRCh37/COSMIC_v"
-            + str(cosmic_version)
-            + "_SBS"
-            + str(samples.shape[0])
-            + "_GRCh37.txt",
-            sep="\t",
-            index_col=0,
-        )
+        if not os.path.isfile(reference):
+            raise ValueError(
+                "No COSMIC reference signatures are available for SBS{} (cosmic_version {}). "
+                "SBS288 and SBS1536 inputs need a user-supplied signature_database; "
+                "alternatively set collapse_to_SBS96=True to use the SBS96 COSMIC "
+                "signatures.".format(samples.shape[0], cosmic_version)
+            )
+        sigDatabase = pd.read_csv(reference, sep="\t", index_col=0)
         signames = sigDatabase.columns
 
     elif samples.shape[0] == 78:

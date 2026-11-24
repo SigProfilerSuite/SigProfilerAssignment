@@ -270,6 +270,27 @@ class TestCollapseToSBS96:
         expected = _activities(cosmic_run, "Assignment_Solution", "Assignment_Solution")
         pd.testing.assert_frame_equal(_activities(out, "Assignment_Solution", "Assignment_Solution"), expected)
 
+    def test_sbs288_without_collapse_uses_the_packaged_v32_reference(self, inputs, tmp_path):
+        path = tmp_path / "samples288.txt"
+        _expand_sbs96(inputs["samples"], "288", counts=True).to_csv(path, sep="\t")
+        out = _run(Analyze.cosmic_fit, tmp_path / "out", samples=str(path), collapse_to_SBS96=False,
+                   cosmic_version=3.2)
+        acts = _activities(out, "Assignment_Solution", "Assignment_Solution")
+        assert all(c.startswith("SBS288_Ref_") for c in acts.columns)
+        assert (acts.sum(axis=1) == inputs["samples"].sum()).all()
+
+    # SBS288 / SBS1536 have no packaged COSMIC reference (except SBS288 v3.2)
+    @pytest.mark.parametrize("context,version", [("288", 3.6), ("1536", 3.6), ("1536", 3.2)])
+    def test_extended_samples_without_reference_raise(self, context, version, inputs, tmp_path):
+        path = tmp_path / ("samples%s.txt" % context)
+        _expand_sbs96(inputs["samples"], context, counts=True).to_csv(path, sep="\t")
+        expected = (r"^No COSMIC reference signatures are available for SBS{} \(cosmic_version {}\)\. SBS288 and "
+                    r"SBS1536 inputs need a user-supplied signature_database; alternatively set "
+                    r"collapse_to_SBS96=True to use the SBS96 COSMIC signatures\.$").format(context, version)
+        with pytest.raises(ValueError, match=expected):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=str(path), collapse_to_SBS96=False,
+                 cosmic_version=version)
+
     def test_decompose_with_sbs1536_custom_database_collapsed(self, inputs, tmp_path):
         db = tmp_path / "db1536.txt"
         _expand_sbs96(_cosmic()[["SBS1", "SBS5", "SBS13", "SBS2", "SBS40a"]], "1536", counts=False).to_csv(db, sep="\t")
