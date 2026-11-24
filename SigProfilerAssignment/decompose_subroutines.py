@@ -406,7 +406,7 @@ def getProcessAvg(
         signames = sigDatabase.columns
         connected_sigs = False
     else:
-        # never use the input itself as the reference (audit SPA-2026-11 #19)
+        # never use the input itself as the reference
         raise ValueError(
             "Input samples have {} rows (mutation contexts) and no COSMIC reference exists "
             "for that context. Provide a signature_database with the same mutation contexts "

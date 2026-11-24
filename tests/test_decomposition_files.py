@@ -252,7 +252,7 @@ class TestCollapseToSBS96:
         expected = _activities(decompose_run, "Decompose_Solution", "Decompose_Solution")
         pd.testing.assert_frame_equal(_activities(out, "Decompose_Solution", "Decompose_Solution"), expected)
 
-    # audit SPA-2026-11 #15: samples and database are collapsed separately, each from its own labels
+    # samples and database are collapsed separately, each from its own labels
     @pytest.mark.parametrize("context", ["288", "1536", "4608"])
     def test_extended_samples_and_custom_database_collapse_separately(self, context, inputs, tmp_path):
         samples, db = tmp_path / "samples.txt", tmp_path / "db.txt"
@@ -344,7 +344,7 @@ def _shuffled(df, seed):
 
 
 class TestSignatureRowAlignment:
-    # audit SPA-2026-11 #5: signature matrices used to be used by row position
+    # signature matrices used to be used by row position
     DB_SIGS = ["SBS1", "SBS5", "SBS13", "SBS2", "SBS40a"]
 
     def test_cosmic_fit_shuffled_signature_database(self, inputs, tmp_path):
@@ -418,7 +418,7 @@ class TestSignatureRowAlignment:
             _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=str(path))
 
 
-# ─── input validation (audit SPA-2026-11 #3) ─────────────────────────────────
+# ─── input validation ─────────────────────────────────
 
 class TestInputValidation:
     def _samples_with(self, inputs, tmp_path, value, sample="S1", row=0, name="samples_bad.txt"):
@@ -559,7 +559,7 @@ class TestDecompositionParameters:
         assert all(c["add_penalty"] == 0.05 and c["remove_penalty"] == 0.01 for c in decomposition_calls)
 
     def test_user_penalties_reach_the_decomposition(self, decomposition_calls, inputs, tmp_path):
-        # audit SPA-2026-11 #12: the decomposition used fixed 0.05 / 0.01
+        # the decomposition used fixed 0.05 / 0.01
         _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=inputs["denovo_path"],
              nnls_add_penalty=0.2, nnls_remove_penalty=0.1)
         assert decomposition_calls
@@ -571,7 +571,7 @@ class TestDecompositionParameters:
         assert all(c["connected_sigs"] is True for c in decomposition_calls)
 
     def test_connected_sigs_false_reaches_the_decomposition(self, decomposition_calls, inputs, tmp_path):
-        # audit SPA-2026-11 #13: getProcessAvg's default True overwrote the user's False
+        # getProcessAvg's default True overwrote the user's False
         _run(Analyze.decompose_fit, tmp_path / "out", samples=inputs["samples_path"], signatures=inputs["denovo_path"],
              connected_sigs=False)
         assert decomposition_calls
@@ -582,7 +582,7 @@ class TestDecompositionParameters:
 
 class TestInputErrors:
     def test_missing_samples_file_raises_file_not_found(self, tmp_path):
-        # audit SPA-2026-11 #1: a mistyped path used to fail later with
+        # a mistyped path used to fail later with
         # "AttributeError: 'str' object has no attribute 'shape'"
         missing = tmp_path / "typo_samples.txt"
         output = tmp_path / "out"
@@ -590,7 +590,7 @@ class TestInputErrors:
             _run(Analyze.cosmic_fit, output, samples=str(missing))
         assert not output.exists()
 
-    # audit SPA-2026-11 #2: library errors must raise exceptions, never sys.exit()
+    # library errors must raise exceptions, never sys.exit()
     def test_invalid_input_type_raises_value_error(self, inputs, tmp_path):
         with pytest.raises(ValueError, match="Invalid input_type"):
             _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"], input_type="bam")
@@ -623,7 +623,7 @@ class TestInputErrors:
         with pytest.raises(ValueError, match="Input samples have 96 rows but signature_database has 10"):
             _run(Analyze.cosmic_fit, tmp_path / "out", samples=inputs["samples_path"], signature_database=str(db_path))
 
-    # audit SPA-2026-11 #19: without a signature_database, an unsupported context must not
+    # without a signature_database, an unsupported context must not
     # silently use the samples themselves as the signature database
     @pytest.mark.parametrize("collapse", [False, True])
     def test_unsupported_context_without_database_raises_value_error(self, inputs, tmp_path, collapse):
@@ -640,7 +640,7 @@ class TestInputErrors:
                  collapse_to_SBS96=False)
 
     def test_decompose_signatures_with_other_row_count_than_samples_raises_value_error(self, inputs, tmp_path):
-        # audit SPA-2026-11 #2: de novo signatures are aligned to the sample contexts by position
+        # de novo signatures are aligned to the sample contexts by position
         denovo = _dummy_denovo_signatures()
         path = tmp_path / "denovo95.txt"
         denovo.drop(denovo.index[10]).to_csv(path, sep="\t")
