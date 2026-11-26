@@ -15,7 +15,7 @@ def write_version_py(filename="SigProfilerAssignment/version.py"):
 # THIS FILE IS GENERATED FROM SigProfilerAssignment SETUP.PY
 short_version = '%(version)s'
 version = '%(version)s'
-Update = 'v1.1.3: Fixed set_index() calls for Python 3.12 StringArray compatibility'
+Update = 'v1.2.0: Stricter input validation, add/remove step and decompose_fit fixes, zero-mutation samples removed, effective COSMIC reference recorded in metadata'
 
     """
     fh = open(filename, "w")
