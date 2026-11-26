@@ -6,6 +6,80 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-26
+
+### Added
+
+- feat(metadata): record the COSMIC reference actually used
+
+
+### Changed
+
+- test(assignment): add characterization tests for spa_analyze and fitting helpers
+
+- test(assignment): lock cosmic_fit on custom contexts with a user signature database
+
+- test(assignment): lock collapse_to_SBS96 results for SBS288 and SBS1536
+
+- style(assignment): reword regression comments to describe behaviour only
+
+- build(deps): declare a coherent minimum dependency stack
+
+- test(plots): characterize the SBS1536 decomposition page
+
+
+### Fixed
+
+- fix(assignment): raise FileNotFoundError for a missing samples file
+
+- fix(assignment): raise exceptions instead of sys.exit() on invalid input
+
+- fix(assignment): reject unsupported contexts without a signature database
+
+- fix(assignment): use the approved samples message for decompose_fit contexts
+
+- fix(assignment): check that decompose_fit signatures match the sample contexts
+
+- fix(assignment): collapse extended SBS contexts to SBS96 from their own labels
+
+- fix(assignment): skip collapse_to_SBS96 with a warning for non-SBS inputs
+
+- fix(assignment): explain non-standard contexts when collapsing to SBS96
+
+- fix(assignment): do not assume the cause of non-standard SBS96 contexts
+
+- fix(assignment): match signature rows to the sample contexts by label
+
+- fix(assignment): use the user's add/remove penalties in the decompose_fit decomposition
+
+- fix(assignment): respect connected_sigs in the decompose_fit decomposition
+
+- fix(assignment): validate input counts and user signature databases
+
+- fix(assignment): allow signatures as samples in decompose_fit with a warning
+
+- fix(assignment): explain missing SBS288/SBS1536 references instead of a raw file error
+
+- fix(assignment): report zero instead of NaN probabilities for unexplained contexts
+
+- fix(assignment): stop consuming numbers from numpy's global random generator
+
+- fix(assignment): compare active signature sets in the add/remove convergence check
+
+- fix(assignment): remove the unused SLSQP solver branch
+
+- fix(assignment): run the add/remove step when no signature is left to add
+
+- fix(assignment): report add/remove step failures per sample
+
+- fix(cli): keep whole COSMIC versions as integers
+
+- fix(cli): forward --volume to the analysis
+
+- fix(plots): draw the de novo signature on SBS1536 pages without reconstruction
+
+- fix(assignment): remove samples without mutations in every mode
+
 ## [1.1.6] - 2026-11-21
 
 ### Changed
