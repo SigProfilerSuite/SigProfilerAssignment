@@ -69,3 +69,45 @@ jobs:
     - name: Run integration test
       run: |
         python3 test.py
+
+  min-deps:
+    # oldest supported Python with every dependency pinned to the lower bound declared in
+    # setup.py, to check that the declared minimums install together and pass the tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.9'
+
+    - name: Upgrade pip, setuptools, and packaging
+      run: |
+        python -m pip install --upgrade pip setuptools packaging
+
+    - name: Pin dependencies to their declared lower bounds
+      run: |
+        python - > min-constraints.txt <<'PYEOF'
+        import ast, re
+        tree = ast.parse(open("setup.py").read())
+        reqs = next(node.value for node in ast.walk(tree) if isinstance(node, ast.Assign)
+                    and any(getattr(t, "id", None) == "requirements" for t in node.targets))
+        for req in ast.literal_eval(reqs):
+            m = re.match(r"^([A-Za-z0-9_.-]+).*?>=\s*([0-9][0-9.]*)", req)
+            if m:
+                print("{}=={}".format(m.group(1), m.group(2)))
+        PYEOF
+        cat min-constraints.txt
+
+    - name: Install package at the minimum versions
+      run: |
+        pip install -c min-constraints.txt .[tests]
+        pip install pytest
+        pip check
+
+    - name: Run unit tests
+      run: |
+        pytest -rw tests

@@ -16,6 +16,11 @@ def str2bool(v):
 def str2list(arg):
     return arg.split(",")
 
+def cosmic_version(v):
+    # whole versions stay integers so the reference file name is COSMIC_v3_..., not COSMIC_v3.0_...
+    version = float(v)
+    return int(version) if version.is_integer() else version
+
 def parse_arguments_common(args: List[str], description: str) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=description)
 
@@ -51,7 +56,7 @@ def parse_arguments_common(args: List[str], description: str) -> argparse.Namesp
     )
     parser.add_argument(
         "--cosmic_version",
-        type=float,
+        type=cosmic_version,
         default=3.6,
         help="COSMIC version (default: 3.6). Valid options: {1, 2, 3, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6}.",
     )
@@ -201,6 +206,7 @@ class CliController:
             export_probabilities=parsed_args.export_probabilities,
             export_probabilities_per_mutation=parsed_args.export_probabilities_per_mutation,
             add_background_signatures=parsed_args.add_background_signatures,
+            volume=parsed_args.volume,
         )
 
     def dispatch_denovo_fit(self, user_args: List[str]) -> None:
@@ -232,6 +238,7 @@ class CliController:
             export_probabilities=parsed_args.export_probabilities,
             export_probabilities_per_mutation=parsed_args.export_probabilities_per_mutation,
             add_background_signatures=parsed_args.add_background_signatures,
+            volume=parsed_args.volume,
         )
 
     def dispatch_cosmic_fit(self, user_args: List[str]) -> None:
@@ -264,4 +271,5 @@ class CliController:
             export_probabilities_per_mutation=parsed_args.export_probabilities_per_mutation,
             sample_reconstruction_plots=parsed_args.sample_reconstruction_plots,
             add_background_signatures=parsed_args.add_background_signatures,
+            volume=parsed_args.volume,
         )

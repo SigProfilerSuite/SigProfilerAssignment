@@ -1,5 +1,8 @@
 import pytest
 import argparse
+import os
+import SigProfilerAssignment
+from SigProfilerAssignment.controllers import cli_controller
 from SigProfilerAssignment.controllers.cli_controller import (
     parse_arguments_common,
     str2bool,
@@ -84,5 +87,86 @@ def test_str2list():
     assert str2list("arg_unique") == ["arg_unique"]
     assert str2list("wrong.sepparator") == ["wrong.sepparator"]
 
+
+# ─── CliController dispatch ──────────────────────────────────────────────
+
+
+@pytest.fixture
+def captured_call(monkeypatch):
+    """Replace spa_analyze with a recorder so dispatch can be tested without running an analysis."""
+    calls = []
+    monkeypatch.setattr(cli_controller.decomp, "spa_analyze", lambda **kw: calls.append(kw))
+    return calls
+
+
+class TestDispatch:
+    COMMON = ["in.txt", "out_dir", "--genome_build", "GRCh38", "--cosmic_version", "3.4",
+              "--nnls_add_penalty", "0.1", "--nnls_remove_penalty", "0.02",
+              "--connected_sigs", "False", "--cpu", "2"]
+
+    def _check_common(self, kw):
+        assert kw["samples"] == "in.txt"
+        assert kw["output"] == "out_dir"
+        assert kw["genome_build"] == "GRCh38"
+        assert kw["cosmic_version"] == 3.4
+        assert kw["nnls_add_penalty"] == 0.1
+        assert kw["nnls_remove_penalty"] == 0.02
+        assert kw["connected_sigs"] is False
+        assert kw["cpu"] == 2
+
+    def test_cosmic_fit(self, captured_call):
+        cli_controller.CliController().dispatch_cosmic_fit(self.COMMON)
+        (kw,) = captured_call
+        self._check_common(kw)
+        assert kw["cosmic_fit_option"] is True
+        assert kw["decompose_fit_option"] is False
+        assert kw["denovo_refit_option"] is False
+
+    def test_denovo_fit(self, captured_call):
+        cli_controller.CliController().dispatch_denovo_fit(self.COMMON + ["--signatures", "sigs.txt"])
+        (kw,) = captured_call
+        self._check_common(kw)
+        assert kw["signatures"] == "sigs.txt"
+        assert kw["denovo_refit_option"] is True
+        assert kw["cosmic_fit_option"] is False
+
+    def test_decompose_fit(self, captured_call):
+        cli_controller.CliController().dispatch_decompose_fit(self.COMMON + ["--signatures", "sigs.txt"])
+        (kw,) = captured_call
+        self._check_common(kw)
+        assert kw["signatures"] == "sigs.txt"
+        assert kw["decompose_fit_option"] is True
+        assert kw["cosmic_fit_option"] is False
+
 if __name__ == "__main__":
     pytest.main()
+
+
+
+class TestVolumeIsForwarded:
+    @pytest.mark.parametrize("dispatch", ["dispatch_cosmic_fit", "dispatch_denovo_fit", "dispatch_decompose_fit"])
+    def test_volume_reaches_spa_analyze(self, captured_call, dispatch):
+        getattr(cli_controller.CliController(), dispatch)(["in.txt", "out_dir", "--volume", "/tmp/spa_volume"])
+        (kw,) = captured_call
+        assert kw["volume"] == "/tmp/spa_volume"
+
+    @pytest.mark.parametrize("dispatch", ["dispatch_cosmic_fit", "dispatch_denovo_fit", "dispatch_decompose_fit"])
+    def test_default_volume_is_none(self, captured_call, dispatch):
+        getattr(cli_controller.CliController(), dispatch)(["in.txt", "out_dir"])
+        (kw,) = captured_call
+        assert kw["volume"] is None
+
+class TestCosmicVersionArgument:
+    # the version is used to build the reference file name (e.g. COSMIC_v3_SBS_GRCh37.txt)
+    @pytest.mark.parametrize("value,name", [("1", "1"), ("2", "2"), ("3", "3"), ("3.0", "3"),
+                                            ("3.1", "3.1"), ("3.4", "3.4"), ("3.6", "3.6")])
+    def test_version_keeps_the_reference_file_name(self, value, name):
+        args = parse_arguments_common(["in.txt", "out_dir", "--cosmic_version", value], "test")
+        assert str(args.cosmic_version) == name
+        ref = os.path.join(os.path.dirname(SigProfilerAssignment.__file__), "data", "Reference_Signatures",
+                           "GRCh37", "COSMIC_v{}_SBS_GRCh37.txt".format(args.cosmic_version))
+        assert os.path.exists(ref)
+
+    def test_default_version(self):
+        args = parse_arguments_common(["in.txt", "out_dir"], "test")
+        assert str(args.cosmic_version) == "3.6"

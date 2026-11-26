@@ -452,7 +452,7 @@ def gen_plot(
         c.drawPath(p, stroke=1, fill=1)
     else:
         c.drawImage(
-            output_path + "/SBS_sub_plots/" + de_novo + "_" + project + ".png",
+            denovo_image,
             WIDTH_GAP,
             MID_HEIGHT_LETTER - (HEIGHT_GRAPH),
             width=WIDTH_GRAPH,

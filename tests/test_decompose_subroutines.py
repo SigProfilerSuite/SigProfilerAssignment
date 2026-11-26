@@ -2,15 +2,33 @@
 No genome reference required.
 Run with: pytest tests/test_decompose_subroutines.py -v
 """
+import os
+
 import numpy as np
+import pandas as pd
 import pytest
 
+import SigProfilerAssignment as spa
+
 from SigProfilerAssignment.decompose_subroutines import (
+    add_remove_failure_message,
+    align_signatures_to_contexts,
+    check_samples_matrix,
+    check_signature_database,
+    collapse_not_applicable_message,
+    collapse_to_sbs96,
+    cosmic_reference,
+    cosmic_reference_message,
     cor_sim,
     cos_sim,
+    drop_zero_samples,
     get_indeces,
+    getProcessAvg,
+    is_extended_sbs,
+    report_add_remove_failure,
     get_items_from_index,
     make_letter_ids,
+    probabilities,
     signature_plotting_text,
     union,
 )
@@ -137,3 +155,330 @@ class TestCorSim:
         # non-zero vector; cor_sim only special-cases all-zero input.
         result = cor_sim([5, 5, 5], [1, 2, 3])
         assert np.isnan(result)
+
+
+# ─── is_extended_sbs / collapse_to_sbs96 ──────────────────────────────────────────────
+
+def _context(plot_type):
+    from sigProfilerPlotting import sigProfilerPlotting as sigPlot
+    return sigPlot.get_context_reference(plot_type)
+
+
+class TestIsExtendedSbs:
+    @pytest.mark.parametrize("plot_type", ["288", "384", "1536", "4608", "6144"])
+    def test_extended_sbs_contexts(self, plot_type):
+        assert is_extended_sbs(_context(plot_type))
+
+    def test_sbs96_is_not_extended(self):
+        assert not is_extended_sbs(_context("96"))
+
+    @pytest.mark.parametrize("plot_type", ["78", "83"])
+    def test_dbs_and_id_are_not_extended_sbs(self, plot_type):
+        assert not is_extended_sbs(_context(plot_type))
+
+    def test_arbitrary_labels_are_not_extended_sbs(self):
+        assert not is_extended_sbs(["CTX%03d" % i for i in range(200)])
+
+
+class TestCollapseToSbs96:
+    @pytest.mark.parametrize("plot_type", ["288", "384", "1536", "4608", "6144"])
+    def test_gives_the_96_contexts_in_canonical_order(self, plot_type):
+        labels = _context(plot_type)
+        matrix = pd.DataFrame({"S1": np.ones(len(labels))}, index=labels)
+        collapsed = collapse_to_sbs96(matrix)
+        assert list(collapsed.index) == _context("96")
+        assert collapsed["S1"].sum() == len(labels)
+
+    def test_sums_rows_by_central_trinucleotide(self):
+        labels = _context("288")
+        matrix = pd.DataFrame({"S1": np.arange(len(labels), dtype=float)}, index=labels)
+        collapsed = collapse_to_sbs96(matrix)
+        expected = sum(matrix.loc[lab, "S1"] for lab in labels if lab.endswith("A[C>A]A"))
+        assert collapsed.loc["A[C>A]A", "S1"] == expected
+
+    def test_label_order_does_not_matter(self):
+        labels = _context("1536")
+        matrix = pd.DataFrame({"S1": np.arange(len(labels), dtype=float)}, index=labels)
+        shuffled = matrix.iloc[::-1]
+        pd.testing.assert_frame_equal(collapse_to_sbs96(shuffled), collapse_to_sbs96(matrix))
+
+    def test_non_sbs_label_raises_value_error(self):
+        matrix = pd.DataFrame({"S1": [1.0, 2.0]}, index=["A[C>A]A", "DBS_AC>CA"])
+        with pytest.raises(ValueError, match="DBS_AC>CA"):
+            collapse_to_sbs96(matrix)
+
+    def test_purine_centred_contexts_raise_value_error(self):
+        # same mutations written from the purine strand: A[C>A]G becomes C[G>T]T
+        comp = str.maketrans("ACGT", "TGCA")
+        labels = []
+        for lab in _context("288"):
+            strand, ctx = lab.split(":")
+            labels.append("%s:%s[%s>%s]%s" % (strand, ctx[6].translate(comp), ctx[2].translate(comp),
+                                               ctx[4].translate(comp), ctx[0].translate(comp)))
+        matrix = pd.DataFrame({"S1": np.ones(len(labels))}, index=labels)
+        with pytest.raises(ValueError, match=r"do not correspond to the COSMIC SBS96 contexts "
+                                             r"\(e\.g\. '.\[[AG]>.\].'\)\.$"):
+            collapse_to_sbs96(matrix)
+
+    def test_incomplete_contexts_raise_value_error(self):
+        # drop every strand variant of one trinucleotide, so only 95 contexts remain
+        labels = [lab for lab in _context("288") if not lab.endswith("T[T>G]T")]
+        matrix = pd.DataFrame({"S1": np.ones(len(labels))}, index=labels)
+        with pytest.raises(ValueError, match="95"):
+            collapse_to_sbs96(matrix)
+
+
+class TestAlignSignaturesToContexts:
+    CONTEXTS = ["c1", "c2", "c3"]
+
+    def _sigs(self, index):
+        return pd.DataFrame({"A": range(len(index)), "B": range(10, 10 + len(index))}, index=index)
+
+    def test_reorders_rows_to_the_sample_contexts(self):
+        sigs = self._sigs(["c3", "c1", "c2"])
+        aligned = align_signatures_to_contexts(sigs, self.CONTEXTS, "signature_database", "signature_database")
+        assert list(aligned.index) == self.CONTEXTS
+        assert list(aligned["A"]) == [1, 2, 0]
+
+    def test_same_order_is_unchanged(self):
+        sigs = self._sigs(self.CONTEXTS)
+        aligned = align_signatures_to_contexts(sigs, self.CONTEXTS, "signature_database", "signature_database")
+        pd.testing.assert_frame_equal(aligned, sigs)
+
+    def test_duplicated_context_raises(self):
+        with pytest.raises(ValueError, match=r"^signature_database has duplicated mutation contexts: c1\. "):
+            align_signatures_to_contexts(self._sigs(["c1", "c2", "c1"]), self.CONTEXTS,
+                                         "signature_database", "signature_database")
+
+    def test_missing_and_unexpected_contexts_raise(self):
+        with pytest.raises(ValueError, match=r"\(missing in 'signatures': c3; not in the samples: x9\)"):
+            align_signatures_to_contexts(self._sigs(["c1", "c2", "x9"]), self.CONTEXTS,
+                                         "The matrix passed in 'signatures'", "'signatures'")
+
+    def test_only_missing_contexts_are_listed_alone(self):
+        with pytest.raises(ValueError, match=r"\(missing in signature_database: c3\)\. "):
+            align_signatures_to_contexts(self._sigs(["c1", "c2"]), self.CONTEXTS,
+                                         "signature_database", "signature_database")
+
+    def test_long_lists_are_truncated(self):
+        contexts = ["c%d" % i for i in range(8)]
+        with pytest.raises(ValueError, match=r"missing in signature_database: c0, c1, c2, c3, c4, \.\.\.; not in the samples: z\)"):
+            align_signatures_to_contexts(self._sigs(["z"]), contexts, "signature_database", "signature_database")
+
+
+class TestCheckSamplesMatrix:
+    def _m(self, **cols):
+        return pd.DataFrame(cols, index=["c1", "c2", "c3"])
+
+    def test_valid_counts_give_no_warning(self):
+        assert check_samples_matrix(self._m(S1=[1, 2, 3], S2=[0, 5, 7])) == []
+
+    def test_negative_value_names_the_first_cell(self):
+        with pytest.raises(ValueError, match=r"sample\(s\) S2 \(e\.g\. S2 / c2 = -3\)"):
+            check_samples_matrix(self._m(S1=[1, 2, 3], S2=[0, -3, 7]))
+
+    def test_nan_is_reported_before_other_problems(self):
+        with pytest.raises(ValueError, match=r"missing values \(NaN\) in sample\(s\) S1"):
+            check_samples_matrix(self._m(S1=[np.nan, -1, 3], S2=[0, 5, 7]))
+
+    def test_proportions_raise(self):
+        with pytest.raises(ValueError, match=r"^All columns of the input samples sum to ~1"):
+            check_samples_matrix(self._m(S1=[0.2, 0.3, 0.5], S2=[0.1, 0.1, 0.8]))
+
+    def test_proportions_only_warn_when_allowed(self):
+        (warning,) = check_samples_matrix(self._m(S1=[0.2, 0.3, 0.5], S2=[0.1, 0.1, 0.8]), allow_proportions=True)
+        assert warning.startswith("All columns of the input samples sum to ~1, so they look like signatures")
+
+    def test_one_column_summing_to_one_is_not_proportions(self):
+        assert check_samples_matrix(self._m(S1=[0, 1, 0], S2=[3, 5, 7])) == []
+
+    def test_non_integer_counts_warn(self):
+        (warning,) = check_samples_matrix(self._m(S1=[1.5, 2, 3], S2=[0, 5, 7]))
+        assert warning.startswith("Input samples contain non-integer values in sample(s) S1.")
+
+    def test_text_columns_are_ignored(self):
+        frame = pd.DataFrame({"MutationType": ["c1", "c2", "c3"], "S1": [1, 2, 3]})
+        assert check_samples_matrix(frame) == []
+
+
+class TestCheckSignatureDatabase:
+    def _db(self, a, b):
+        return pd.DataFrame({"SIG_A": a, "SIG_B": b}, index=["c1", "c2", "c3"])
+
+    def test_normalised_database_gives_no_warning(self):
+        assert check_signature_database(self._db([0.2, 0.3, 0.5], [1.0, 0.0, 0.0])) == []
+
+    def test_negative_value_raises(self):
+        with pytest.raises(ValueError, match=r"negative values in signature\(s\) SIG_B\. "
+                                             r"Signature probabilities must be non-negative\.$"):
+            check_signature_database(self._db([0.2, 0.3, 0.5], [1.1, -0.1, 0.0]))
+
+    @pytest.mark.parametrize("bad,text", [(np.nan, r"missing values \(NaN\)"), (np.inf, "infinite values")])
+    def test_nan_and_inf_raise(self, bad, text):
+        with pytest.raises(ValueError, match=text + r" in signature\(s\) SIG_A\. Signature probabilities must "
+                                                    r"be finite, non-negative numbers\.$"):
+            check_signature_database(self._db([bad, 0.3, 0.5], [1.0, 0.0, 0.0]))
+
+    def test_columns_not_summing_to_one_warn(self):
+        (warning,) = check_signature_database(self._db([0.2, 0.3, 0.35], [1.0, 0.0, 0.0]))
+        assert warning.startswith("signature_database signature(s) SIG_A do not sum to 1 (sums: 0.85).")
+
+
+class TestCollapseNotApplicableMessage:
+    PREFIX = ("collapse_to_SBS96=True only applies to SBS inputs with extended contexts "
+              "(e.g. SBS288, SBS1536, SBS4608); ")
+
+    @pytest.mark.parametrize("rows,name", [(78, "DBS78"), (83, "ID83"), (48, "CNV48"), (32, "SV32")])
+    def test_known_context_is_named(self, rows, name):
+        assert collapse_not_applicable_message(rows) == (
+            self.PREFIX + "the input is %s, so it is analysed without collapsing." % name)
+
+    def test_unknown_context_gives_row_count(self):
+        assert collapse_not_applicable_message(10) == (
+            self.PREFIX + "the input has 10 rows (mutation contexts), so it is analysed without collapsing.")
+
+
+# ─── add/remove failure warning ──────────────────────────────────────────────
+
+class TestAddRemoveFailureMessage:
+    def test_names_the_sample_and_the_error(self):
+        assert add_remove_failure_message("S1", UnboundLocalError("x")) == (
+            "The add/remove step failed for sample S1 (UnboundLocalError: x); the composition from the "
+            "initial removal step is reported for this sample.")
+
+
+class TestReportAddRemoveFailure:
+    def _layer(self, tmp_path):
+        layer = tmp_path / "Assignment_Solution"
+        (layer / "Solution_Stats").mkdir(parents=True)
+        return layer
+
+    def test_prints_and_writes_log_and_metadata(self, tmp_path, capsys):
+        layer = self._layer(tmp_path)
+        (tmp_path / "JOB_METADATA_SPA.txt").write_text("header")
+        report_add_remove_failure("warning text", str(layer), "Assignment_Solution")
+        assert "warning text" in capsys.readouterr().out
+        log = layer / "Solution_Stats" / "Assignment_Solution_Signature_Assignment_log.txt"
+        assert "warning text" in log.read_text()
+        assert (tmp_path / "JOB_METADATA_SPA.txt").read_text() == "header\n warning text"
+
+    def test_does_not_create_missing_metadata(self, tmp_path, capsys):
+        layer = self._layer(tmp_path)
+        report_add_remove_failure("warning text", str(layer), "Assignment_Solution")
+        assert not (tmp_path / "JOB_METADATA_SPA.txt").exists()
+
+
+# ─── packaged COSMIC reference actually used ─────────────────────────────────
+
+class TestCosmicReference:
+    @pytest.mark.parametrize("args,expected", [
+        ((96, "GRCh38", 3.4, False), ("GRCh38", 3.4, "COSMIC_v3.4_SBS_GRCh38.txt")),
+        ((96, "GRCh37", 3.6, True), ("GRCh37", 3.6, "COSMIC_v3.6_SBS_GRCh37_exome.txt")),
+        ((96, "GRCh37", 3, False), ("GRCh37", 3, "COSMIC_v3_SBS_GRCh37.txt")),
+        # unsupported genome build: reset to GRCh37
+        ((96, "hg19", 3.6, False), ("GRCh37", 3.6, "COSMIC_v3.6_SBS_GRCh37.txt")),
+        # DBS/ID need version 3.0 or newer, CN 3.3, SV 3.4: reset to 3.6
+        ((78, "GRCh38", 2, False), ("GRCh38", 3.6, "COSMIC_v3.6_DBS_GRCh38.txt")),
+        ((78, "GRCh37", 3.4, True), ("GRCh37", 3.4, "COSMIC_v3.4_DBS_GRCh37_exome.txt")),
+        ((83, "GRCh38", 2, False), ("GRCh37", 3.6, "COSMIC_v3.6_ID_GRCh37.txt")),
+        ((48, "GRCh38", 3.2, False), ("GRCh37", 3.6, "COSMIC_v3.6_CN_GRCh37.txt")),
+        ((32, "GRCh37", 3.3, False), ("GRCh38", 3.6, "COSMIC_v3.6_SV_GRCh38.txt")),
+        # SBS288/SBS1536 references are GRCh37 only
+        ((288, "GRCh38", 3.2, False), ("GRCh37", 3.2, "COSMIC_v3.2_SBS288_GRCh37.txt")),
+    ])
+    def test_effective_genome_version_and_file(self, args, expected):
+        assert cosmic_reference(*args) == expected
+
+    @pytest.mark.parametrize("args", [(96, "GRCh38", 3.4, False), (78, "GRCh38", 2, False), (83, "GRCh38", 2, False),
+                                      (48, "GRCh38", 3.2, False), (32, "GRCh37", 3.3, False), (96, "mm10", 3.6, True)])
+    def test_reference_file_is_packaged(self, args):
+        genome, _, name = cosmic_reference(*args)
+        assert os.path.isfile(os.path.join(os.path.dirname(spa.__file__), "data", "Reference_Signatures", genome, name))
+
+    def test_unknown_context_has_no_reference(self):
+        assert cosmic_reference(95, "GRCh37", 3.6, False) is None
+
+    def test_message_gives_effective_and_requested_values(self):
+        assert cosmic_reference_message(78, "GRCh38", 2, False) == (
+            "Reference signatures: COSMIC_v3.6_DBS_GRCh38.txt (cosmic_version 3.6, genome_build GRCh38; "
+            "requested: cosmic_version 2, genome_build GRCh38).")
+
+
+# ─── samples without mutations ───────────────────────────────────────────────
+
+class TestDropZeroSamples:
+    def _matrix(self, columns):
+        return pd.DataFrame(columns, index=["c1", "c2", "c3"])
+
+    def test_no_zero_sample_is_unchanged(self):
+        genomes = self._matrix({"S1": [1, 2, 3], "S2": [0, 0, 4]})
+        kept, message = drop_zero_samples(genomes)
+        assert kept.equals(genomes)
+        assert message is None
+
+    def test_zero_samples_are_removed_and_listed(self):
+        genomes = self._matrix({"S1": [1, 2, 3], "S2": [0, 0, 0], "S3": [5, 0, 0], "S4": [0, 0, 0]})
+        kept, message = drop_zero_samples(genomes)
+        assert list(kept.columns) == ["S1", "S3"]
+        assert message == ("Removed 2 sample(s) with no mutations (all counts are zero): S2, S4. "
+                           "They are not included in the results.")
+
+    def test_all_zero_samples_raise(self):
+        genomes = self._matrix({"S1": [0, 0, 0], "S2": [0, 0, 0]})
+        with pytest.raises(ValueError, match="All input samples have no mutations"):
+            drop_zero_samples(genomes)
+
+    def test_text_columns_are_kept(self):
+        genomes = pd.DataFrame({"MutationType": ["c1", "c2"], "S1": [1, 2], "S2": [0, 0]})
+        kept, _ = drop_zero_samples(genomes)
+        assert list(kept.columns) == ["MutationType", "S1"]
+
+
+# ─── getProcessAvg ──────────────────────────────────────────────
+
+class TestGetProcessAvg:
+    def test_unsupported_context_raises_value_error(self):
+        # used to return the input itself as the signature database
+        samples = pd.DataFrame(np.ones((95, 2)), index=["C%02d" % i for i in range(95)], columns=["S1", "S2"])
+        with pytest.raises(ValueError, match="Input samples have 95 rows"):
+            getProcessAvg(samples)
+
+
+# ─── probabilities ──────────────────────────────────────────────
+
+class TestProbabilities:
+    W = np.array([[0.5, 0.1], [0.3, 0.2], [0.2, 0.7]])
+    H = np.array([[10.0, 0.0], [30.0, 5.0]])
+
+    def _probs(self):
+        return probabilities(self.W, self.H, ["c1", "c2", "c3"], ["sigA", "sigB"], ["S1", "S2"])
+
+    def test_one_row_per_context_and_sample(self):
+        probs = self._probs()
+        assert len(probs) == 6
+        assert list(probs.columns) == ["Sample Names", "MutationType", "sigA", "sigB"]
+        assert list(probs["Sample Names"]) == ["S1"] * 3 + ["S2"] * 3
+
+    def test_rows_with_reconstructed_mass_sum_to_one(self):
+        probs = self._probs()
+        assert np.allclose(probs[["sigA", "sigB"]].sum(axis=1), 1.0)
+
+    def test_matches_definition(self):
+        probs = self._probs()
+        # S1, context c2: sigA 0.3*10 = 3, sigB 0.2*30 = 6 -> 1/3 and 2/3
+        row = probs[(probs["Sample Names"] == "S1") & (probs["MutationType"] == "c2")]
+        assert row["sigA"].item() == pytest.approx(1 / 3)
+        assert row["sigB"].item() == pytest.approx(2 / 3)
+
+    def test_signature_without_activity_gets_zero(self):
+        probs = self._probs()
+        assert (probs.loc[probs["Sample Names"] == "S2", "sigA"] == 0).all()
+
+    def test_context_without_reconstructed_mass_gets_zeros(self):
+        # c1 has weight only in sigA, which has no activity in S2: 0/0 used to give NaN
+        W = np.array([[0.5, 0.0], [0.3, 0.2], [0.2, 0.8]])
+        H = np.array([[10.0, 0.0], [30.0, 5.0]])
+        probs = probabilities(W, H, ["c1", "c2", "c3"], ["sigA", "sigB"], ["S1", "S2"])
+        row = probs[(probs["Sample Names"] == "S2") & (probs["MutationType"] == "c1")]
+        assert row[["sigA", "sigB"]].to_numpy().tolist() == [[0.0, 0.0]]
+        assert np.isfinite(probs[["sigA", "sigB"]].to_numpy()).all()

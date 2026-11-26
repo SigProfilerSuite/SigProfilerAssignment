@@ -352,12 +352,27 @@ def spa_analyze(
         genomes = genomes.set_index("MutationType")
 
     elif input_type.lower() == "matrix":
-        try:
+        if isinstance(samples, (str, os.PathLike)):
+            if not os.path.isfile(samples):
+                raise FileNotFoundError(
+                    "Input samples file not found: '{}'. "
+                    "Check the path passed in 'samples'.".format(samples)
+                )
             genomes = pd.read_csv(samples, sep="\t", index_col=0)
-        except:
+        else:
+            # DataFrame or array input is used as given
             genomes = samples
     else:
-        sys.exit("Invalid input_type specified")
+        raise ValueError("Invalid input_type specified: '{}'".format(input_type))
+
+    # validate the input mutation counts; warnings are printed now and recorded in the metadata
+    input_warnings = sub.check_samples_matrix(genomes, allow_proportions=decompose_fit_option == True)
+    # samples without mutations cannot be assigned: remove them (all modes) and say so
+    genomes, zero_samples_warning = sub.drop_zero_samples(genomes)
+    if zero_samples_warning:
+        input_warnings.append(zero_samples_warning)
+    for message in input_warnings:
+        print(message)
 
     mutation_type = str(genomes.shape[0])
     m = mutation_type
@@ -456,7 +471,7 @@ def spa_analyze(
         pass
     else:
         if type(exclude_signature_subgroups) is not list:
-            sys.exit(
+            raise ValueError(
                 "exclude_signature_subgroups input should be a list of appropriate flags, please refer to documentation."
             )
         else:
@@ -553,6 +568,10 @@ def spa_analyze(
         sysdata.write("Numpy version: " + np.__version__ + "\n")
         record_parameters(sysdata, execution_parameters, start_time)
         sysdata.close()
+        if input_warnings:
+            with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
+                for message in input_warnings:
+                    sysdata.write("\n " + message)
     # Add sequence parameter to control the tmbplot y-axis scale
     if exome == True:
         sequence = "exome"
@@ -564,15 +583,21 @@ def spa_analyze(
         #################
 
     if denovo_refit_option == True:
-        try:
-            processAvg = pd.read_csv(signatures, sep="\t", index_col=0)
-        except:
-            try:
-                processAvg = signatures
-            except:
-                sys.exit(
-                    "Error in formatting of input signatures, Pass a text file of signatures in the format of denovo signatures"
+        if isinstance(signatures, (str, os.PathLike)):
+            if not os.path.isfile(signatures):
+                raise FileNotFoundError(
+                    "Input signatures file not found: '{}'. "
+                    "Check the path passed in 'signatures'.".format(signatures)
                 )
+            processAvg = pd.read_csv(signatures, sep="\t", index_col=0)
+        else:
+            # DataFrame input is used as given
+            processAvg = signatures
+        # match the signature rows to the sample contexts by label
+        if devopts == None and isinstance(processAvg, pd.DataFrame):
+            processAvg = sub.align_signatures_to_contexts(
+                processAvg, genomes.index, "The matrix passed in 'signatures'", "'signatures'"
+            )
 
         if devopts == None:
             listOfSignatures = processAvg.columns
@@ -621,7 +646,7 @@ def spa_analyze(
         # create the folder for the final solution/ De Novo Solution
         exposureAvg_dummy = (
             pd.DataFrame(
-                np.random.rand(processAvg.shape[1], genomes.shape[1]),
+                np.ones((processAvg.shape[1], genomes.shape[1])),  # only the non-zero pattern is used
                 index=listOfSignatures,
                 columns=colnames.to_list(),
             )
@@ -673,7 +698,7 @@ def spa_analyze(
             background_sigs = []
         exposureAvg_dummy = (
             pd.DataFrame(
-                np.random.rand(processAvg.shape[1], genomes.shape[1]),
+                np.ones((processAvg.shape[1], genomes.shape[1])),  # only the non-zero pattern is used
                 index=allsigids,
                 columns=colnames.to_list(),
             )
@@ -764,15 +789,38 @@ def spa_analyze(
                 # Decomposition
                 #################
     if decompose_fit_option == True:
-        try:
-            processAvg = pd.read_csv(signatures, sep="\t", index_col=0)
-        except:
-            try:
-                processAvg = signatures
-            except:
-                sys.exit(
-                    "Error in formatting of input signatures, Pass a text file of signatures in the format of denovo signatures"
+        if isinstance(signatures, (str, os.PathLike)):
+            if not os.path.isfile(signatures):
+                raise FileNotFoundError(
+                    "Input signatures file not found: '{}'. "
+                    "Check the path passed in 'signatures'.".format(signatures)
                 )
+            processAvg = pd.read_csv(signatures, sep="\t", index_col=0)
+        else:
+            # DataFrame input is used as given
+            processAvg = signatures
+
+        # without a signature_database the samples must have a COSMIC reference context
+        if signature_database is None and genomes.shape[0] not in (96, 288, 1536, 78, 83, 48, 32):
+            raise ValueError(
+                "Input samples have {} rows (mutation contexts) and no COSMIC reference exists "
+                "for that context. Provide a signature_database with the same mutation contexts "
+                "as the samples (e.g. for SBS4608), or check the input matrix for missing or "
+                "extra rows.".format(genomes.shape[0])
+            )
+        # the de novo signatures are aligned to the sample contexts below
+        if processAvg.shape[0] != genomes.shape[0]:
+            raise ValueError(
+                "The matrix passed in 'signatures' has {} rows but the samples have {}. "
+                "Samples and signatures must have the same mutation contexts.".format(
+                    processAvg.shape[0], genomes.shape[0]
+                )
+            )
+        # match the signature rows to the sample contexts by label
+        if devopts == None and isinstance(processAvg, pd.DataFrame):
+            processAvg = sub.align_signatures_to_contexts(
+                processAvg, genomes.index, "The matrix passed in 'signatures'", "'signatures'"
+            )
 
         if devopts == None:
             listOfSignatures = processAvg.columns
@@ -841,7 +889,7 @@ def spa_analyze(
 
         exposureAvg_dummy = (
             pd.DataFrame(
-                np.random.rand(processAvg.shape[1], genomes.shape[1]),
+                np.ones((processAvg.shape[1], genomes.shape[1])),  # only the non-zero pattern is used
                 index=listOfSignatures,
                 columns=colnames.to_list(),
             )
@@ -859,36 +907,39 @@ def spa_analyze(
         except:
             print("The {} folder could not be created".format("Decomposed_Solution"))
 
-        if (
-            processAvg.shape[0] == 1536 and collapse_to_SBS96 == True
-        ):  # collapse the 1536 context into 96 only for the decomposition
-            processAvg = pd.DataFrame(processAvg, index=index)
-            processAvg = processAvg.groupby(processAvg.index.str[1:8]).sum()
-            genomes = genomes.groupby(genomes.index.str[1:8]).sum()
+        # collapse extended SBS contexts (SBS288, SBS1536, SBS4608, ...) into SBS96 only for the
+        # decomposition; the de novo signatures are aligned to the sample contexts
+        if collapse_to_SBS96 == True and sub.is_extended_sbs(index):
+            # np.array copies: the decomposition writes into this matrix
+            processAvg = np.array(sub.collapse_to_sbs96(pd.DataFrame(processAvg, index=index)))
+            genomes = sub.collapse_to_sbs96(pd.DataFrame(genomes, index=index))
             index = genomes.index
-            # Also collapse originalProcessAvg to match the collapsed context
-            # originalProcessAvg has mutation types in the index, so group by index directly
-            originalProcessAvg = originalProcessAvg.groupby(originalProcessAvg.index.str[1:8]).sum()
-            processAvg = np.array(processAvg)
-
-        if (
-            processAvg.shape[0] == 288 and collapse_to_SBS96 == True
-        ):  # collapse the 288 context into 96 only for the decomposition
-            processAvg = pd.DataFrame(processAvg, index=index)
-            processAvg = processAvg.groupby(processAvg.index.str[2:9]).sum()
-            genomes = pd.DataFrame(genomes, index=index)
-            genomes = genomes.groupby(genomes.index.str[2:9]).sum()
-            index = genomes.index
-            # Also collapse originalProcessAvg to match the collapsed context
-            # originalProcessAvg has mutation types in the index, so group by index directly
-            originalProcessAvg = originalProcessAvg.groupby(originalProcessAvg.index.str[2:9]).sum()
-            processAvg = np.array(processAvg)
+            # originalProcessAvg keeps the de novo names; collapse it from its own labels
+            if sub.is_extended_sbs(originalProcessAvg.index):
+                originalProcessAvg = sub.collapse_to_sbs96(originalProcessAvg)
+        elif collapse_to_SBS96 == True and len(index) != 96:
+            message = sub.collapse_not_applicable_message(len(index))
+            print(message)
+            if make_metadata:
+                with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
+                    sysdata.write("\n " + message)
 
         print("\n Decomposing De Novo Signatures  .....")
         current_time_start = datetime.datetime.now()
         if make_metadata:
             with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
                 sysdata.write("\n Decomposing De Novo Signatures  .....")
+        if isinstance(signature_database, (str, os.PathLike)) and os.path.isfile(signature_database):
+            try:
+                database_to_check = pd.read_csv(signature_database, sep="\t", index_col=0)
+            except Exception:
+                database_to_check = None  # format errors are reported by signature_decomposition
+            if database_to_check is not None:
+                for message in sub.check_signature_database(database_to_check):
+                    print(message)
+                    if make_metadata:
+                        with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
+                            sysdata.write("\n " + message)
         final_signatures = sub.signature_decomposition(
             processAvg,
             mutation_type,
@@ -897,9 +948,9 @@ def spa_analyze(
             cosmic_version=cosmic_version,
             signature_database=signature_database,
             mutation_context=mutation_context,
-            add_penalty=0.05,
+            add_penalty=nnls_add_penalty,
             connected_sigs=connected_sigs,
-            remove_penalty=0.01,
+            remove_penalty=nnls_remove_penalty,
             make_decomposition_plots=make_decomposition_plots,
             originalProcessAvg=originalProcessAvg,
             new_signature_thresh_hold=new_signature_thresh_hold,
@@ -989,29 +1040,19 @@ def spa_analyze(
         #         sys.exit("Something is wrong with the format of input signatures, Pass a text file of signatures in the format of COSMIC sig database")
         index = genomes.index
         colnames = genomes.columns
-        if (genomes.sum() == 0).sum() > 0:
-            print("Removing samples with zero TMB ...... ")
-            genomes = genomes.loc[:, (genomes != 0).any(axis=0)]
-            colnames = genomes.columns
+        n_input_contexts = genomes.shape[0]  # before any collapse to SBS96
 
-        if (
-            genomes.shape[0] == 1536 and collapse_to_SBS96 == True
-        ):  # collapse the 1596 context into 96 only for the deocmposition
-            # processAvg = pd.DataFrame(processAvg, index=index)
-            # processAvg = processAvg.groupby(processAvg.index.str[1:8]).sum()
-            genomes = pd.DataFrame(genomes, index=index)
-            genomes = genomes.groupby(genomes.index.str[1:8]).sum()
+        # collapse extended SBS contexts (SBS288, SBS1536, SBS4608, ...) into SBS96; the samples
+        # and the signature database are collapsed separately, each from its own labels
+        if collapse_to_SBS96 == True and sub.is_extended_sbs(genomes.index):
+            genomes = sub.collapse_to_sbs96(pd.DataFrame(genomes, index=index))
             index = genomes.index
-            # processAvg = np.array(processAvg)
-
-        if (
-            genomes.shape[0] == 288 and collapse_to_SBS96 == True
-        ):  # collapse the 288 context into 96 only for the deocmposition
-            # processAvg = pd.DataFrame(processAvg, index=index)
-            # processAvg = processAvg.groupby(processAvg.index.str[2:9]).sum()
-            genomes = pd.DataFrame(genomes, index=index)
-            genomes = genomes.groupby(genomes.index.str[2:9]).sum()
-            index = genomes.index
+        elif collapse_to_SBS96 == True and genomes.shape[0] != 96:
+            message = sub.collapse_not_applicable_message(genomes.shape[0])
+            print(message)
+            if make_metadata:
+                with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
+                    sysdata.write("\n " + message)
 
         if signature_database == None:
             processAvg = sub.getProcessAvg(
@@ -1020,32 +1061,43 @@ def spa_analyze(
                 cosmic_version=cosmic_version,
                 exome=exome,
             )[0]
+            if make_metadata:
+                with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
+                    sysdata.write(
+                        "\n " + sub.cosmic_reference_message(genomes.shape[0], genome_build, cosmic_version, exome)
+                    )
         else:
-
+            if not os.path.isfile(signature_database):
+                raise FileNotFoundError(
+                    "Signature database file not found: '{}'. "
+                    "Check the path passed in 'signature_database'.".format(signature_database)
+                )
             try:
                 processAvg = pd.read_csv(signature_database, sep="\t", index_col=0)
-
-            except:
-                sys.exit(
+            except Exception as e:
+                raise ValueError(
                     "Something is wrong with the format of signature database, Pass a text file of signatures in the format of COSMIC sig database"
+                ) from e
+            for message in sub.check_signature_database(processAvg):
+                print(message)
+                if make_metadata:
+                    with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
+                        sysdata.write("\n " + message)
+            n_database_contexts = processAvg.shape[0]
+            if collapse_to_SBS96 == True and sub.is_extended_sbs(processAvg.index):
+                processAvg = sub.collapse_to_sbs96(processAvg)
+            # the database must describe the same contexts as the samples (both possibly collapsed)
+            if processAvg.shape[0] != genomes.shape[0]:
+                raise ValueError(
+                    "Input samples have {} rows but signature_database has {}. "
+                    "Samples and signatures must have the same mutation contexts.".format(
+                        n_input_contexts, n_database_contexts
+                    )
                 )
-
-        # collapse the 1596 context into 96 only for the decomposition
-        if processAvg.shape[0] == 1536 and collapse_to_SBS96 == True:
-            processAvg = pd.DataFrame(processAvg, index=index)
-            processAvg = processAvg.groupby(processAvg.index.str[1:8]).sum()
-            genomes = pd.DataFrame(genomes, index=index)
-            genomes = genomes.groupby(genomes.index.str[1:8]).sum()
-            index = genomes.index
-
-        if (
-            processAvg.shape[0] == 288 and collapse_to_SBS96 == True
-        ):  # collapse the 288 context into 96 only for the deocmposition
-            processAvg = pd.DataFrame(processAvg, index=index)
-            processAvg = processAvg.groupby(processAvg.index.str[2:9]).sum()
-            genomes = pd.DataFrame(genomes, index=index)
-            genomes = genomes.groupby(genomes.index.str[2:9]).sum()
-            index = genomes.index
+            # match the database rows to the sample contexts by label
+            processAvg = sub.align_signatures_to_contexts(
+                processAvg, genomes.index, "signature_database", "signature_database"
+            )
 
         # processAvg is sigdatabase: remove sigs corresponding to exclusion rules.
         sig_exclusion_list = [m_for_subgroups + items for items in sig_exclusion_list]
@@ -1084,7 +1136,7 @@ def spa_analyze(
             background_sigs = []
         exposureAvg_dummy = (
             pd.DataFrame(
-                np.random.rand(processAvg.shape[1], genomes.shape[1]),
+                np.ones((processAvg.shape[1], genomes.shape[1])),  # only the non-zero pattern is used
                 index=allsigids,
                 columns=colnames.to_list(),
             )
@@ -1096,12 +1148,6 @@ def spa_analyze(
         if make_metadata:
             with open(os.path.join(output, "JOB_METADATA_SPA.txt"), "a") as sysdata:
                 sysdata.write("\n Assigning COSMIC sigs or Signature Database ...... ")
-        if processAvg.shape[0] != 96:
-            if genomes.shape[0] == processAvg.shape[0] and collapse_to_SBS96 == True:
-                sys.exit(
-                    'Signatures Database and Samples are of same context type and is not equal to 96. please rerun by setting the flag "collapse_to_SBS96 = False "'
-                )
-
         sub.make_final_solution(
             processAvg,
             genomes,

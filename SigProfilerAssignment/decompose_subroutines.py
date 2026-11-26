@@ -29,6 +29,277 @@ from scipy.spatial.distance import correlation as cor
 from alive_progress import alive_bar
 from joblib import Parallel, delayed
 from multiprocessing import cpu_count
+import re
+
+
+# SBS context with flanks, optional strand prefix: e.g. 'T:A[C>A]A' (SBS288/SBS384),
+# 'AA[C>A]AA' (SBS1536), 'T:AA[C>A]AA' (SBS4608/SBS6144)
+_SBS_CONTEXT = re.compile(r"^(?:[A-Z]:)?[ACGT]*([ACGT])\[([ACGT]>[ACGT])\]([ACGT])[ACGT]*$")
+SBS96_CONTEXTS = sorted(
+    "{}[{}]{}".format(five, substitution, three)
+    for substitution in ("C>A", "C>G", "C>T", "T>A", "T>C", "T>G")
+    for five in "ACGT"
+    for three in "ACGT"
+)
+
+
+def is_extended_sbs(contexts):
+    """True when there are more than 96 contexts and all of them are SBS contexts with
+    flanks (W[X>Y]Z, optionally with a strand prefix), so they can be collapsed to SBS96."""
+    contexts = [str(c) for c in contexts]
+    return len(contexts) > 96 and all(_SBS_CONTEXT.match(c) for c in contexts)
+
+
+def collapse_to_sbs96(matrix):
+    """Sum the rows of an extended SBS matrix (SBS288, SBS384, SBS1536, SBS4608, ...) into the
+    96 trinucleotide contexts, using the matrix's own row labels. Returns a DataFrame in the
+    canonical SBS96 order."""
+    keys = []
+    for label in matrix.index.astype(str):
+        match = _SBS_CONTEXT.match(label)
+        if match is None:
+            raise ValueError(
+                "Cannot collapse to SBS96: '{}' is not an SBS mutation context of the form "
+                "W[X>Y]Z.".format(label)
+            )
+        keys.append("{}[{}]{}".format(match.group(1), match.group(2), match.group(3)))
+    collapsed = matrix.groupby(keys).sum()
+    unexpected = [key for key in collapsed.index if key not in set(SBS96_CONTEXTS)]
+    if unexpected:
+        raise ValueError(
+            "Collapsing to SBS96 gave contexts that do not correspond to the COSMIC SBS96 "
+            "contexts (e.g. '{}').".format(unexpected[0])
+        )
+    if set(collapsed.index) != set(SBS96_CONTEXTS):
+        raise ValueError(
+            "Collapsing to SBS96 gave {} trinucleotide contexts instead of 96; the input does "
+            "not contain every SBS96 context.".format(len(collapsed))
+        )
+    collapsed = collapsed.loc[SBS96_CONTEXTS]
+    collapsed.index.name = matrix.index.name
+    return collapsed
+
+
+def _first_items(items, n=5):
+    items = [str(x) for x in items]
+    return ", ".join(items[:n]) + (", ..." if len(items) > n else "")
+
+
+def align_signatures_to_contexts(signatures, contexts, subject, short_name):
+    """Check that `signatures` (indexed by mutation context) has the same contexts as the
+    samples, without duplicates, and return it with its rows in the order of `contexts`.
+    `subject` and `short_name` name the matrix in error messages, e.g.
+    ("signature_database", "signature_database") or
+    ("The matrix passed in 'signatures'", "'signatures'")."""
+    labels = signatures.index.astype(str)
+    duplicated = labels[labels.duplicated()].unique()
+    if len(duplicated):
+        raise ValueError(
+            "{} has duplicated mutation contexts: {}. Each mutation context must appear "
+            "only once.".format(subject, _first_items(duplicated))
+        )
+    contexts = [str(c) for c in contexts]
+    present = set(labels)
+    missing = [c for c in contexts if c not in present]
+    expected = set(contexts)
+    unexpected = [lab for lab in labels if lab not in expected]
+    if missing or unexpected:
+        parts = []
+        if missing:
+            parts.append("missing in {}: {}".format(short_name, _first_items(missing)))
+        if unexpected:
+            parts.append("not in the samples: {}".format(_first_items(unexpected)))
+        raise ValueError(
+            "{} and the input samples have different mutation contexts ({}). Samples and "
+            "signatures must have the same mutation contexts.".format(subject, "; ".join(parts))
+        )
+    aligned = signatures.copy()
+    aligned.index = labels
+    aligned = aligned.loc[contexts]
+    aligned.index.name = signatures.index.name
+    return aligned
+
+
+def _numeric_values(matrix):
+    """Numeric columns of a samples or signatures matrix (labels and text columns ignored)."""
+    frame = pd.DataFrame(matrix)
+    return frame.select_dtypes(include=[np.number])
+
+
+def drop_zero_samples(genomes):
+    """Remove samples whose mutation counts are all zero. Returns (genomes, warning or None);
+    raises ValueError when no sample has mutations. Non-DataFrame input is returned unchanged."""
+    if not isinstance(genomes, pd.DataFrame):
+        return genomes, None
+    values = _numeric_values(genomes)
+    zero = values.columns[(values == 0).all(axis=0)]
+    if len(zero) == 0:
+        return genomes, None
+    if len(zero) == values.shape[1]:
+        raise ValueError(
+            "All input samples have no mutations (all counts are zero); there is nothing to assign."
+        )
+    message = (
+        "Removed {} sample(s) with no mutations (all counts are zero): {}. "
+        "They are not included in the results.".format(len(zero), ", ".join(str(x) for x in zero))
+    )
+    return genomes.drop(columns=zero), message
+
+
+def check_samples_matrix(genomes, allow_proportions=False):
+    """Validate input mutation counts. Raises ValueError for NaN, infinite or negative values and,
+    unless allow_proportions is True (decompose_fit), for matrices that look like
+    signatures/proportions; returns warning messages."""
+    values = _numeric_values(genomes)
+    data = values.to_numpy(dtype=float)
+    names = values.columns.astype(str)
+    if data.size == 0:
+        return []
+    bad = np.isnan(data).any(axis=0)
+    if bad.any():
+        raise ValueError(
+            "Input samples contain missing values (NaN) in sample(s) {}. Mutation counts must be "
+            "finite, non-negative numbers.".format(_first_items(names[bad]))
+        )
+    bad = np.isinf(data).any(axis=0)
+    if bad.any():
+        raise ValueError(
+            "Input samples contain infinite values in sample(s) {}. Mutation counts must be "
+            "finite, non-negative numbers.".format(_first_items(names[bad]))
+        )
+    negative = data < 0
+    if negative.any():
+        row, col = np.argwhere(negative)[0]
+        raise ValueError(
+            "Input samples contain negative values in sample(s) {} (e.g. {} / {} = {:g}). Mutation "
+            "counts must be non-negative integers.".format(
+                _first_items(names[negative.any(axis=0)]), names[col], values.index[row], data[row, col]
+            )
+        )
+    if np.all(np.abs(data.sum(axis=0) - 1) <= 0.01):
+        if not allow_proportions:
+            raise ValueError(
+                "All columns of the input samples sum to ~1, so the input looks like signatures or "
+                "proportions rather than mutation counts. Activities are reported as integer mutation "
+                "counts, so each column would be treated as a single mutation. Provide raw mutation "
+                "counts; to decompose signatures into a reference set (COSMIC or a custom "
+                "signature_database), use decompose_fit, passing them as 'samples' and as 'signatures'."
+            )
+        # decompose_fit: the decomposition of 'signatures' is still valid
+        return [
+            "All columns of the input samples sum to ~1, so they look like signatures or proportions "
+            "rather than mutation counts. The decomposition of 'signatures' (De_Novo_map_to_COSMIC) is "
+            "not affected, but the sample activities are rounded to integer mutation counts that add up "
+            "to ~1 per column, so they are not meaningful."
+        ]
+    warnings_found = []
+    non_integer = (np.abs(data - np.round(data)) > 1e-9).any(axis=0)
+    if non_integer.any():
+        warnings_found.append(
+            "Input samples contain non-integer values in sample(s) {}. Activities are reported as "
+            "integer mutation counts, so results will be rounded.".format(_first_items(names[non_integer]))
+        )
+    return warnings_found
+
+
+def check_signature_database(signatures):
+    """Validate a user signature_database. Raises ValueError for NaN, infinite or negative values;
+    returns warning messages for signatures that do not sum to ~1."""
+    values = _numeric_values(signatures)
+    data = values.to_numpy(dtype=float)
+    names = values.columns.astype(str)
+    if data.size == 0:
+        return []
+    bad = np.isnan(data).any(axis=0)
+    if bad.any():
+        raise ValueError(
+            "signature_database contains missing values (NaN) in signature(s) {}. Signature "
+            "probabilities must be finite, non-negative numbers.".format(_first_items(names[bad]))
+        )
+    bad = np.isinf(data).any(axis=0)
+    if bad.any():
+        raise ValueError(
+            "signature_database contains infinite values in signature(s) {}. Signature "
+            "probabilities must be finite, non-negative numbers.".format(_first_items(names[bad]))
+        )
+    bad = (data < 0).any(axis=0)
+    if bad.any():
+        raise ValueError(
+            "signature_database contains negative values in signature(s) {}. Signature "
+            "probabilities must be non-negative.".format(_first_items(names[bad]))
+        )
+    sums = data.sum(axis=0)
+    off = np.abs(sums - 1) > 0.01
+    if off.any():
+        return [
+            "signature_database signature(s) {} do not sum to 1 (sums: {}). Signatures are expected "
+            "to be probability distributions over mutation contexts.".format(
+                _first_items(names[off]), _first_items(["{:.2f}".format(x) for x in sums[off]])
+            )
+        ]
+    return []
+
+
+_NAMED_CONTEXTS = {78: "DBS78", 83: "ID83", 48: "CNV48", 32: "SV32"}
+
+
+def collapse_not_applicable_message(n_contexts):
+    """Warning for collapse_to_SBS96=True on an input that is not an extended SBS context."""
+    if n_contexts in _NAMED_CONTEXTS:
+        what = "is {}".format(_NAMED_CONTEXTS[n_contexts])
+    else:
+        what = "has {} rows (mutation contexts)".format(n_contexts)
+    return (
+        "collapse_to_SBS96=True only applies to SBS inputs with extended contexts "
+        "(e.g. SBS288, SBS1536, SBS4608); the input {}, so it is analysed without "
+        "collapsing.".format(what)
+    )
+
+
+COSMIC_GENOME_BUILDS = ["GRCh37", "GRCh38", "mm9", "mm10", "mm39", "rn6", "rn7"]
+
+# non-SBS contexts: (signature type, first COSMIC version that has them, how it is written in messages)
+_COSMIC_MIN_VERSION = {78: ("DBS", 3, "3.0"), 83: ("ID", 3, "3.0"), 48: ("CN", 3.3, "3.3"), 32: ("SV", 3.4, "3.4")}
+
+
+def cosmic_reference(n_contexts, genome_build="GRCh37", cosmic_version=3.6, exome=False):
+    """Packaged COSMIC reference used for an input with n_contexts rows.
+
+    Returns (genome_build, cosmic_version, file name) as actually used, after the automatic
+    substitutions (unsupported genome build -> GRCh37, version too old for DBS/ID/CN/SV -> 3.6,
+    ID/CN/SBS288/SBS1536 only in GRCh37, SV only in GRCh38), or None when no COSMIC reference
+    exists for that context.
+    """
+    if genome_build not in COSMIC_GENOME_BUILDS:
+        genome_build = "GRCh37"
+    if n_contexts in _COSMIC_MIN_VERSION and cosmic_version < _COSMIC_MIN_VERSION[n_contexts][1]:
+        cosmic_version = 3.6
+    exome_suffix = "_exome" if exome else ""
+    if n_contexts == 96:
+        kind, suffix = "SBS", exome_suffix
+    elif n_contexts in (288, 1536):
+        kind, suffix, genome_build = "SBS" + str(n_contexts), "", "GRCh37"
+    elif n_contexts == 78:
+        kind, suffix = "DBS", exome_suffix
+    elif n_contexts == 83:
+        kind, suffix, genome_build = "ID", "", "GRCh37"
+    elif n_contexts == 48:
+        kind, suffix, genome_build = "CN", "", "GRCh37"
+    elif n_contexts == 32:
+        kind, suffix, genome_build = "SV", "", "GRCh38"
+    else:
+        return None
+    name = "COSMIC_v{}_{}_{}{}.txt".format(cosmic_version, kind, genome_build, suffix)
+    return genome_build, cosmic_version, name
+
+
+def cosmic_reference_message(n_contexts, genome_build="GRCh37", cosmic_version=3.6, exome=False):
+    """Metadata line naming the packaged COSMIC reference used and the requested values."""
+    used_genome, used_version, name = cosmic_reference(n_contexts, genome_build, cosmic_version, exome)
+    return (
+        "Reference signatures: {} (cosmic_version {}, genome_build {}; requested: cosmic_version {}, "
+        "genome_build {}).".format(name, used_version, used_genome, cosmic_version, genome_build)
+    )
 
 
 def getProcessAvg(
@@ -40,172 +311,51 @@ def getProcessAvg(
     exome=False,
 ):
     paths = spa.__path__[0]
+    n_contexts = samples.shape[0]
 
-    if genome_build in ["GRCh37", "GRCh38", "mm9", "mm10", "mm39", "rn6", "rn7"]:
-        genome_build = genome_build
-    else:
+    if genome_build not in COSMIC_GENOME_BUILDS:
         print(
             "The selected genome build is "
             + str(genome_build)
             + ". COSMIC signatures are available only for GRCh37/38, mm9/10/39 and rn6/7 genomes. So, the genome build is reset to GRCh37."
         )
         genome_build = "GRCh37"
-    if samples.shape[0] == 96:
-        if exome == False:
-            sigDatabase = pd.read_csv(
-                paths
-                + "/data/Reference_Signatures/"
-                + genome_build
-                + "/COSMIC_v"
-                + str(cosmic_version)
-                + "_SBS_"
-                + genome_build
-                + ".txt",
-                sep="\t",
-                index_col=0,
-            )
-        else:
-            sigDatabase = pd.read_csv(
-                paths
-                + "/data/Reference_Signatures/"
-                + genome_build
-                + "/COSMIC_v"
-                + str(cosmic_version)
-                + "_SBS_"
-                + genome_build
-                + "_exome.txt",
-                sep="\t",
-                index_col=0,
-            )
-        signames = sigDatabase.columns
 
-    elif samples.shape[0] == 288:
-        sigDatabase = pd.read_csv(
-            paths
-            + "/data/Reference_Signatures/GRCh37/COSMIC_v"
-            + str(cosmic_version)
-            + "_SBS"
-            + str(samples.shape[0])
-            + "_GRCh37.txt",
-            sep="\t",
-            index_col=0,
+    reference = cosmic_reference(n_contexts, genome_build, cosmic_version, exome)
+    if reference is None:
+        # never use the input itself as the reference
+        raise ValueError(
+            "Input samples have {} rows (mutation contexts) and no COSMIC reference exists "
+            "for that context. Provide a signature_database with the same mutation contexts "
+            "as the samples (e.g. for SBS4608), or check the input matrix for missing or "
+            "extra rows.".format(n_contexts)
         )
-        signames = sigDatabase.columns
+    reference_genome, reference_version, reference_name = reference
 
-    elif samples.shape[0] == 1536:
-        sigDatabase = pd.read_csv(
-            paths
-            + "/data/Reference_Signatures/GRCh37/COSMIC_v"
-            + str(cosmic_version)
-            + "_SBS"
-            + str(samples.shape[0])
-            + "_GRCh37.txt",
-            sep="\t",
-            index_col=0,
+    if n_contexts in _COSMIC_MIN_VERSION and reference_version != cosmic_version:
+        kind, _, first_version = _COSMIC_MIN_VERSION[n_contexts]
+        print(
+            f"The selected cosmic version is {cosmic_version}. However, {kind} signatures are "
+            f"available only for version {first_version} and newer. Therefore, the cosmic version has "
+            "been reset to 3.6."
         )
-        signames = sigDatabase.columns
 
-    elif samples.shape[0] == 78:
-        if cosmic_version < 3:
-            print(
-                f"The selected cosmic version is {cosmic_version}. However, DBS signatures are "
-                "available only for version 3.0 and newer. Therefore, the cosmic version has "
-                "been reset to 3.6."
-            )
-            cosmic_version = 3.6
-        if exome == False:
-            sigDatabase = pd.read_csv(
-                paths
-                + "/data/Reference_Signatures/"
-                + genome_build
-                + "/COSMIC_v"
-                + str(cosmic_version)
-                + "_DBS_"
-                + genome_build
-                + ".txt",
-                sep="\t",
-                index_col=0,
-            )
-        else:
-            sigDatabase = pd.read_csv(
-                paths
-                + "/data/Reference_Signatures/"
-                + genome_build
-                + "/COSMIC_v"
-                + str(cosmic_version)
-                + "_DBS_"
-                + genome_build
-                + "_exome.txt",
-                sep="\t",
-                index_col=0,
-            )
-        signames = sigDatabase.columns
+    reference_path = os.path.join(paths, "data", "Reference_Signatures", reference_genome, reference_name)
+    if n_contexts in (288, 1536) and not os.path.isfile(reference_path):
+        raise ValueError(
+            "No COSMIC reference signatures are available for SBS{} (cosmic_version {}). "
+            "SBS288 and SBS1536 inputs need a user-supplied signature_database; "
+            "alternatively set collapse_to_SBS96=True to use the SBS96 COSMIC "
+            "signatures.".format(n_contexts, cosmic_version)
+        )
+    sigDatabase = pd.read_csv(reference_path, sep="\t", index_col=0)
+    signames = sigDatabase.columns
+
+    if n_contexts in _COSMIC_MIN_VERSION:
         connected_sigs = False
-
-    elif samples.shape[0] == 83:
-        if cosmic_version < 3:
-            print(
-                f"The selected cosmic version is {cosmic_version}. However, ID signatures are "
-                "available only for version 3.0 and newer. Therefore, the cosmic version has "
-                "been reset to 3.6."
-            )
-            cosmic_version = 3.6
-        sigDatabase = pd.read_csv(
-            paths
-            + "/data/Reference_Signatures/GRCh37/COSMIC_v"
-            + str(cosmic_version)
-            + "_ID_GRCh37.txt",
-            sep="\t",
-            index_col=0,
-        )
-        signames = sigDatabase.columns
-        connected_sigs = False
+    if n_contexts == 83:
         # indel signatures have no re-normalization so "GRCh37" is used
         genome_build = "GRCh37"
-
-    elif samples.shape[0] == 48:
-        if cosmic_version < 3.3:
-            print(
-                f"The selected cosmic version is {cosmic_version}. However, CN signatures are "
-                "available only for version 3.3 and newer. Therefore, the cosmic version has "
-                "been reset to 3.6."
-            )
-            cosmic_version = 3.6
-        sigDatabase = pd.read_csv(
-            paths
-            + "/data/Reference_Signatures/GRCh37/COSMIC_v"
-            + str(cosmic_version)
-            + "_CN_GRCh37.txt",
-            sep="\t",
-            index_col=0,
-        )
-        signames = sigDatabase.columns
-        connected_sigs = False
-
-    elif samples.shape[0] == 32:
-        if cosmic_version < 3.4:
-            print(
-                f"The selected cosmic version is {cosmic_version}. However, SV signatures are "
-                "available only for version 3.4 and newer. Therefore, the cosmic version has "
-                "been reset to 3.6."
-            )
-            cosmic_version = 3.6
-        sigDatabase = pd.read_csv(
-            paths
-            + "/data/Reference_Signatures/GRCh38/COSMIC_v"
-            + str(cosmic_version)
-            + "_SV_GRCh38.txt",
-            sep="\t",
-            index_col=0,
-        )
-        signames = sigDatabase.columns
-        connected_sigs = False
-    else:
-        sigDatabase = pd.DataFrame(samples)
-        sigDatabase.columns = sigDatabase.columns.astype(str)
-        sigDatabase.index = sigDatabase.index.astype(str)
-        signames = sigDatabase.columns
-        connected_sigs = False
 
     return sigDatabase, signames, connected_sigs, genome_build
 
@@ -218,7 +368,7 @@ def getProcessAvg(
             # make_decomposition_plots=False
             del signature_database
         else:
-            sys.exit(
+            raise ValueError(
                 "The Signatures and the custom signature database have different context types."
             )
     sigDatabases = sigDatabase.reset_index()
@@ -335,27 +485,35 @@ def signature_decomposition(
     lognote.write("Genome Build: {}\n".format(genome_build))
 
     if signature_database == None:
+        requested_genome_build = genome_build
         sigDatabase, signames, connected_sigs, genome_build = getProcessAvg(
             signatures,
             genome_build=genome_build,
             cosmic_version=cosmic_version,
+            connected_sigs=connected_sigs,
             exome=exome,
         )
+        metadata_path = os.path.join(os.path.dirname(directory), "JOB_METADATA_SPA.txt")
+        if os.path.exists(metadata_path):
+            with open(metadata_path, "a") as sysdata:
+                sysdata.write(
+                    "\n "
+                    + cosmic_reference_message(signatures.shape[0], requested_genome_build, cosmic_version, exome)
+                )
         # processAvg = processAvg.set_index('Type').rename_axis('MutationType')
     else:
+        if not os.path.isfile(signature_database):
+            raise FileNotFoundError(
+                "Signature database file not found: '{}'. "
+                "Check the path passed in 'signature_database'.".format(signature_database)
+            )
         try:
             sigDatabase = pd.read_csv(signature_database, sep="\t", index_col=0)
             # indx = sigDatabase.index()
-            if (
-                sigDatabase.shape[0] == 1536 and collapse_to_SBS96
-            ):  # collapse the 1596 context into 96 only for the deocmposition
-                sigDatabase = sigDatabase.groupby(sigDatabase.index.str[1:8]).sum()
-
-            elif (
-                sigDatabase.shape[0] == 288 and collapse_to_SBS96
-            ):  # collapse the 288 context into 96 only for the deocmposition
-                # sigDatabase = pd.DataFrame(processAvg, index=index)
-                sigDatabase = sigDatabase.groupby(sigDatabase.index.str[2:9]).sum()
+            # collapse an extended SBS database (SBS288, SBS1536, SBS4608, ...) into SBS96 only
+            # for the decomposition, from its own labels
+            if collapse_to_SBS96 and is_extended_sbs(sigDatabase.index):
+                sigDatabase = collapse_to_sbs96(sigDatabase)
 
             if (
                 sigDatabase.shape[0] == 78
@@ -366,9 +524,14 @@ def signature_decomposition(
             lognote.write(
                 "##### Using a custom signature database for decomposition #####"
             )
-        except:
-            sys.exit(
+        except Exception as e:
+            raise ValueError(
                 "Wrong format of signature database for decompose_fit, Please pass a text file of signatures in the format of COSMIC sig database"
+            ) from e
+        # match the database rows to the de novo signature contexts by label
+        if originalProcessAvg is not None:
+            sigDatabase = align_signatures_to_contexts(
+                sigDatabase, originalProcessAvg.iloc[:, 0], "signature_database", "signature_database"
             )
 
     sig_exclusion_list = [m_for_subgroups + items for items in sig_exclusion_list]
@@ -769,6 +932,26 @@ def signature_decomposition(
     }
 
 
+def add_remove_failure_message(sample, error):
+    """Warning for a sample whose add/remove step raised an exception."""
+    return (
+        "The add/remove step failed for sample {} ({}: {}); the composition from the "
+        "initial removal step is reported for this sample.".format(sample, type(error).__name__, error)
+    )
+
+
+def report_add_remove_failure(message, layer_directory, solution_prefix):
+    """Print the warning and record it in the assignment log and, when present, in JOB_METADATA_SPA.txt."""
+    print(message)
+    log_path = os.path.join(layer_directory, "Solution_Stats", solution_prefix + "_Signature_Assignment_log.txt")
+    with open(log_path, "a") as lognote:
+        lognote.write("\n" + message + "\n")
+    metadata_path = os.path.join(os.path.dirname(layer_directory), "JOB_METADATA_SPA.txt")
+    if os.path.exists(metadata_path):
+        with open(metadata_path, "a") as sysdata:
+            sysdata.write("\n " + message)
+
+
 def process_sample(args):
     # (r, denovo_exposureAvg, attribution, allsigids, background_sigs, processAvg, allgenomes, layer_directory, solution_prefix, verbose, pcawg_rule, initial_remove_penalty, add_penalty, remove_penalty, check_rule_negatives, check_rule_penalty, connected_sigs) = args
     (
@@ -811,6 +994,7 @@ def process_sample(args):
     )
 
     sample_exposure = np.array(denovo_exposureAvg.iloc[:, r])
+    add_remove_error = None
 
     init_sig_idx = np.nonzero(sample_exposure)[0]
     init_sigs = denovo_exposureAvg.index[init_sig_idx]
@@ -990,10 +1174,10 @@ def process_sample(args):
                 )
             )
             lognote.close()
-        except:
-            pass
+        except Exception as e:
+            add_remove_error = e
 
-    return exposureAvg[:, r]
+    return exposureAvg[:, r], add_remove_error
 
 
 def make_final_solution(
@@ -1132,8 +1316,12 @@ def make_final_solution(
 
     # Store the results in exposureAvg
     exposureAvg = np.zeros([processAvg.shape[1], allgenomes.shape[1]])
-    for r, result in enumerate(results):
+    for r, (result, add_remove_error) in enumerate(results):
         exposureAvg[:, r] = result
+        if add_remove_error is not None:
+            report_add_remove_failure(
+                add_remove_failure_message(allcolnames[r], add_remove_error), layer_directory, solution_prefix
+            )
     else:
         # Handle the non-cosmic_sigs case as needed
         pass
@@ -1705,7 +1893,9 @@ def probabilities(W, H, index, allsigids, allcolnames):
     result = 0
     for i in range(H.shape[1]):  # here H.shape is the number of sample
         M = genomes[:, i][np.newaxis]
-        probs = W * H[:, i] / M.T
+        # contexts with no reconstructed mass (0/0) get probability 0 instead of NaN
+        contribution = W * H[:, i]
+        probs = np.divide(contribution, M.T, out=np.zeros_like(contribution, dtype=float), where=M.T > 0)
         probs = pd.DataFrame(probs)
         probs.columns = sigs
         col1 = [cols[i]] * len(rows)
