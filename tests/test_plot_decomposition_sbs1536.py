@@ -39,3 +39,16 @@ def test_page_with_reconstruction(n_bases):
     )
     c.save()
     assert buff.getvalue().startswith(b"%PDF")
+
+
+@pytest.mark.parametrize("n_bases", [1, 2, 3])
+def test_page_without_reconstruction(n_bases):
+    # the de novo signature is drawn alone when reconstruction=False
+    bases = [["SBS%d" % (i + 1), 100.0 / n_bases] for i in range(n_bases)]
+    buff, c = _canvas()
+    spd_1536.gen_plot(
+        "SBS1536A", bases, "unused_output_path", "project", c, False, None, None, None,
+        {"SBS1536A": _image()}, {b[0]: _image() for b in bases}, {"SBS1536A": _image()},
+    )
+    c.save()
+    assert buff.getvalue().startswith(b"%PDF")
