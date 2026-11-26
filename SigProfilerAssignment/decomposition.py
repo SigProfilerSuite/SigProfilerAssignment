@@ -367,6 +367,10 @@ def spa_analyze(
 
     # validate the input mutation counts; warnings are printed now and recorded in the metadata
     input_warnings = sub.check_samples_matrix(genomes, allow_proportions=decompose_fit_option == True)
+    # samples without mutations cannot be assigned: remove them (all modes) and say so
+    genomes, zero_samples_warning = sub.drop_zero_samples(genomes)
+    if zero_samples_warning:
+        input_warnings.append(zero_samples_warning)
     for message in input_warnings:
         print(message)
 
@@ -1037,10 +1041,6 @@ def spa_analyze(
         index = genomes.index
         colnames = genomes.columns
         n_input_contexts = genomes.shape[0]  # before any collapse to SBS96
-        if (genomes.sum() == 0).sum() > 0:
-            print("Removing samples with zero TMB ...... ")
-            genomes = genomes.loc[:, (genomes != 0).any(axis=0)]
-            colnames = genomes.columns
 
         # collapse extended SBS contexts (SBS288, SBS1536, SBS4608, ...) into SBS96; the samples
         # and the signature database are collapsed separately, each from its own labels

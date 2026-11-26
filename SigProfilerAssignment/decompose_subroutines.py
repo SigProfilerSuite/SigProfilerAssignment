@@ -126,6 +126,26 @@ def _numeric_values(matrix):
     return frame.select_dtypes(include=[np.number])
 
 
+def drop_zero_samples(genomes):
+    """Remove samples whose mutation counts are all zero. Returns (genomes, warning or None);
+    raises ValueError when no sample has mutations. Non-DataFrame input is returned unchanged."""
+    if not isinstance(genomes, pd.DataFrame):
+        return genomes, None
+    values = _numeric_values(genomes)
+    zero = values.columns[(values == 0).all(axis=0)]
+    if len(zero) == 0:
+        return genomes, None
+    if len(zero) == values.shape[1]:
+        raise ValueError(
+            "All input samples have no mutations (all counts are zero); there is nothing to assign."
+        )
+    message = (
+        "Removed {} sample(s) with no mutations (all counts are zero): {}. "
+        "They are not included in the results.".format(len(zero), ", ".join(str(x) for x in zero))
+    )
+    return genomes.drop(columns=zero), message
+
+
 def check_samples_matrix(genomes, allow_proportions=False):
     """Validate input mutation counts. Raises ValueError for NaN, infinite or negative values and,
     unless allow_proportions is True (decompose_fit), for matrices that look like

@@ -334,6 +334,44 @@ def _dummy_dbs_inputs(tmp_path):
     return str(samples_path), str(denovo_path), mixtures
 
 
+class TestZeroSamples:
+    MESSAGE = ("Removed 1 sample(s) with no mutations (all counts are zero): S0. "
+               "They are not included in the results.")
+
+    def _samples_with_zero(self, inputs, tmp_path):
+        samples = inputs["samples"].copy()
+        samples.insert(1, "S0", 0)
+        path = tmp_path / "samples_zero.txt"
+        samples.to_csv(path, sep="\t")
+        return str(path)
+
+    @pytest.mark.parametrize("mode,solution,prefix", [
+        ("cosmic_fit", "Assignment_Solution", "Assignment_Solution"),
+        ("denovo_fit", "De_Novo_Solution", "De_Novo"),
+        ("decompose_fit", "Decompose_Solution", "Decompose_Solution"),
+    ])
+    def test_zero_sample_is_removed_with_a_warning(self, inputs, tmp_path, mode, solution, prefix):
+        kwargs = {} if mode == "cosmic_fit" else {"signatures": inputs["denovo_path"]}
+        out, printed = _run_capture(getattr(Analyze, mode), tmp_path / "out",
+                                    samples=self._samples_with_zero(inputs, tmp_path), **kwargs)
+        assert self.MESSAGE in printed
+        assert self.MESSAGE in open(os.path.join(out, "JOB_METADATA_SPA.txt")).read()
+        acts = _activities(out, solution, prefix)
+        assert "S0" not in acts.index
+        assert set(acts.index) == {"S1", "S2", "S3"}
+
+    def test_zero_sample_does_not_change_the_others(self, inputs, tmp_path):
+        out = _run(Analyze.denovo_fit, tmp_path / "out", samples=self._samples_with_zero(inputs, tmp_path),
+                   signatures=inputs["denovo_path"])
+        _assert_close(_activities(out, "De_Novo_Solution", "De_Novo"), TestDenovoFit.EXPECTED)
+
+    def test_all_zero_samples_raise(self, inputs, tmp_path):
+        samples = inputs["samples"] * 0
+        path = tmp_path / "all_zero.txt"
+        samples.to_csv(path, sep="\t")
+        with pytest.raises(ValueError, match="All input samples have no mutations"):
+            _run(Analyze.cosmic_fit, tmp_path / "out", samples=str(path))
+
 class TestReferenceRecorded:
     # the metadata records the packaged COSMIC file actually used, with the effective and requested values
     def _metadata(self, out):

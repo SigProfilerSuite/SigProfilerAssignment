@@ -21,6 +21,7 @@ from SigProfilerAssignment.decompose_subroutines import (
     cosmic_reference_message,
     cor_sim,
     cos_sim,
+    drop_zero_samples,
     get_indeces,
     getProcessAvg,
     is_extended_sbs,
@@ -401,6 +402,36 @@ class TestCosmicReference:
         assert cosmic_reference_message(78, "GRCh38", 2, False) == (
             "Reference signatures: COSMIC_v3.6_DBS_GRCh38.txt (cosmic_version 3.6, genome_build GRCh38; "
             "requested: cosmic_version 2, genome_build GRCh38).")
+
+
+# ─── samples without mutations ───────────────────────────────────────────────
+
+class TestDropZeroSamples:
+    def _matrix(self, columns):
+        return pd.DataFrame(columns, index=["c1", "c2", "c3"])
+
+    def test_no_zero_sample_is_unchanged(self):
+        genomes = self._matrix({"S1": [1, 2, 3], "S2": [0, 0, 4]})
+        kept, message = drop_zero_samples(genomes)
+        assert kept.equals(genomes)
+        assert message is None
+
+    def test_zero_samples_are_removed_and_listed(self):
+        genomes = self._matrix({"S1": [1, 2, 3], "S2": [0, 0, 0], "S3": [5, 0, 0], "S4": [0, 0, 0]})
+        kept, message = drop_zero_samples(genomes)
+        assert list(kept.columns) == ["S1", "S3"]
+        assert message == ("Removed 2 sample(s) with no mutations (all counts are zero): S2, S4. "
+                           "They are not included in the results.")
+
+    def test_all_zero_samples_raise(self):
+        genomes = self._matrix({"S1": [0, 0, 0], "S2": [0, 0, 0]})
+        with pytest.raises(ValueError, match="All input samples have no mutations"):
+            drop_zero_samples(genomes)
+
+    def test_text_columns_are_kept(self):
+        genomes = pd.DataFrame({"MutationType": ["c1", "c2"], "S1": [1, 2], "S2": [0, 0]})
+        kept, _ = drop_zero_samples(genomes)
+        assert list(kept.columns) == ["MutationType", "S1"]
 
 
 # ─── getProcessAvg ──────────────────────────────────────────────
